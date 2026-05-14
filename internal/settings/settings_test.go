@@ -17,6 +17,8 @@ func TestLoadConfig(t *testing.T) {
 	writeConfigFile(t, path, `{
   "format": "json",
   "production": true,
+  "workspace": ["example.com/app"],
+  "buildTags": ["integration"],
   "rules": {"unused-function": "off"},
   "ignorePatterns": ["internal/generated/**"]
 }`)
@@ -36,6 +38,12 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if got := cfg.Rules["unused-function"]; got != RuleOff {
 		t.Fatalf("rule severity = %q; want %q", got, RuleOff)
+	}
+	if len(cfg.Workspace) != 1 || cfg.Workspace[0] != "example.com/app" {
+		t.Fatalf("Workspace = %v; want [example.com/app]", cfg.Workspace)
+	}
+	if len(cfg.BuildTags) != 1 || cfg.BuildTags[0] != "integration" {
+		t.Fatalf("BuildTags = %v; want [integration]", cfg.BuildTags)
 	}
 }
 

@@ -92,7 +92,7 @@ func ApplyBaseline(path string, report *Report) error {
 	}
 
 	previousSuppressed := report.Summary.SuppressedFindings
-	finalizeReport(report)
+	RefreshReport(report)
 	report.Summary.SuppressedByBaseline = suppressed
 	report.Summary.SuppressedFindings = previousSuppressed + suppressed
 

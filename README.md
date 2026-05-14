@@ -24,6 +24,7 @@ Nested Go modules are analyzed independently, and imports from child modules are
 ```bash
 go run ./cmd/fellow --root .
 go run ./cmd/fellow dead-code --format json
+go run ./cmd/fellow audit --base main
 go run ./cmd/fellow --ci
 ```
 
@@ -31,13 +32,17 @@ Flags:
 
 - `--root`, `-r`: root directory to scan, default `.`
 - `--config`, `-c`: config file path, default `<root>/.fellowrc.json` when present
-- `--format`, `-f`: `human` or `json`, default `human`
+- `--format`, `-f`: `human`, `json`, `sarif`, `codeclimate`, `gitlab-codequality`, or `annotations`, default `human`
 - `--production`: exclude `*_test.go` files
 - `--all-requires`: also check `// indirect` requirements for unused status
 - `--ignore-generated`: skip files with generated-code headers
 - `--summary`: print only counts in human output
 - `--max-cyclomatic`: maximum cyclomatic complexity before reporting
 - `--max-cognitive`: maximum cognitive complexity before reporting
+- `--workspace`: comma-separated module path or directory filters
+- `--tags`: comma-separated Go build tags
+- `--coverage`: Go coverage profile to annotate findings
+- `--base`, `--changed-since`: base ref for `audit`
 - `--fail-on-issues`: exit with status 1 when findings exist
 - `--ci`: equivalent to `--fail-on-issues`
 - `--baseline`: suppress findings recorded in a baseline file
@@ -57,7 +62,13 @@ Dead-code detection is a closed-world static analysis of the scanned repo. When 
 {
   "format": "json",
   "production": true,
+  "workspace": ["github.com/acme/service"],
+  "buildTags": ["integration"],
   "ignorePatterns": ["internal/generated/**"],
+  "health": {
+    "maxCyclomatic": 20,
+    "maxCognitive": 15
+  },
   "rules": {
     "unused-function": "off",
     "unused-field": "warn"
@@ -83,4 +94,20 @@ Use baselines to adopt `fellow` incrementally:
 ```bash
 go run ./cmd/fellow --save-baseline fellow-baseline.json
 go run ./cmd/fellow --baseline fellow-baseline.json --fail-on-issues
+```
+
+## CI And Audit
+
+Use `audit` to scope findings to files changed from a base ref:
+
+```bash
+go run ./cmd/fellow audit --base origin/main --format sarif
+```
+
+CI-oriented formats are available with `--format sarif`, `--format codeclimate`, `--format gitlab-codequality`, and `--format annotations`.
+
+Coverage profiles from `go test -coverprofile=coverage.out ./...` can annotate matching findings:
+
+```bash
+go run ./cmd/fellow --coverage coverage.out --format json
 ```

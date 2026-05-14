@@ -49,14 +49,16 @@ const (
 )
 
 type Options struct {
-	Root             string
-	IncludeTests     bool
-	IncludeGenerated bool
-	CheckIndirect    bool
-	Rules            map[string]string
-	IgnorePatterns   []string
-	MaxCyclomatic    int
-	MaxCognitive     int
+	Root              string
+	IncludeTests      bool
+	IncludeGenerated  bool
+	CheckIndirect     bool
+	Rules             map[string]string
+	IgnorePatterns    []string
+	WorkspacePatterns []string
+	BuildTags         []string
+	MaxCyclomatic     int
+	MaxCognitive      int
 }
 
 type Report struct {
@@ -71,6 +73,9 @@ type Summary struct {
 	Findings             int `json:"findings"`
 	SuppressedFindings   int `json:"suppressed_findings,omitempty"`
 	SuppressedByBaseline int `json:"suppressed_by_baseline,omitempty"`
+	SkippedModules       int `json:"skipped_modules,omitempty"`
+	CoveredFindings      int `json:"covered_findings,omitempty"`
+	UncoveredFindings    int `json:"uncovered_findings,omitempty"`
 	UnusedDependencies   int `json:"unused_dependencies"`
 	UnlistedDependencies int `json:"unlisted_dependencies"`
 	TestOnlyDependencies int `json:"test_only_dependencies"`
@@ -109,6 +114,7 @@ type Finding struct {
 	Line          int         `json:"line"`
 	Fingerprint   string      `json:"fingerprint"`
 	Metrics       Metrics     `json:"metrics,omitempty"`
+	Coverage      *Coverage   `json:"coverage,omitempty"`
 	Locations     []Location  `json:"locations,omitempty"`
 	Lines         int         `json:"lines,omitempty"`
 	Indirect      bool        `json:"indirect,omitempty"`
@@ -119,6 +125,11 @@ type Finding struct {
 type Metrics struct {
 	Cyclomatic int `json:"cyclomatic,omitempty"`
 	Cognitive  int `json:"cognitive,omitempty"`
+}
+
+type Coverage struct {
+	Covered bool `json:"covered"`
+	Count   int  `json:"count,omitempty"`
 }
 
 type Location struct {
@@ -169,6 +180,10 @@ func Analyze(opts Options) (*Report, error) {
 	if len(modules) == 0 {
 		return nil, fmt.Errorf("no go.mod files found under %s", absRoot)
 	}
+	modules, skippedModules := filterModules(modules, opts.WorkspacePatterns)
+	if len(modules) == 0 {
+		return nil, fmt.Errorf("no selected go.mod files found under %s", absRoot)
+	}
 
 	moduleDirs := make(map[string]struct{}, len(modules))
 	for _, module := range modules {
@@ -202,8 +217,37 @@ func Analyze(opts Options) (*Report, error) {
 	}
 	finalizeReport(report)
 	report.Summary.SuppressedFindings = suppressedByComment
+	report.Summary.SkippedModules = skippedModules
 
 	return report, nil
+}
+
+func filterModules(modules []moduleState, patterns []string) ([]moduleState, int) {
+	if len(patterns) == 0 {
+		return modules, 0
+	}
+
+	selected := modules[:0]
+	skipped := 0
+	for _, module := range modules {
+		if moduleMatchesPatterns(module, patterns) {
+			selected = append(selected, module)
+			continue
+		}
+		skipped++
+	}
+
+	return selected, skipped
+}
+
+func moduleMatchesPatterns(module moduleState, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matchPathPattern(pattern, module.report.ModulePath) || matchPathPattern(pattern, module.report.Dir) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func discoverModules(root string) ([]moduleState, error) {
@@ -359,6 +403,14 @@ func finalizeReport(report *Report) {
 		assignFingerprints(report.Modules[i].Findings)
 	}
 	report.Summary = summarize(report.Modules)
+}
+
+func RefreshReport(report *Report) {
+	previous := report.Summary
+	finalizeReport(report)
+	report.Summary.SuppressedFindings = previous.SuppressedFindings
+	report.Summary.SuppressedByBaseline = previous.SuppressedByBaseline
+	report.Summary.SkippedModules = previous.SkippedModules
 }
 
 func assignFingerprints(findings []Finding) {
@@ -568,6 +620,13 @@ func summarize(modules []ModuleReport) Summary {
 	for _, module := range modules {
 		for _, finding := range module.Findings {
 			summary.Findings++
+			if finding.Coverage != nil {
+				if finding.Coverage.Covered {
+					summary.CoveredFindings++
+				} else {
+					summary.UncoveredFindings++
+				}
+			}
 			switch finding.Type {
 			case FindingUnusedDependency:
 				summary.UnusedDependencies++

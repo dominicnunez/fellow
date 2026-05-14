@@ -33,8 +33,9 @@ func applyTypedInfo(root string, module *moduleState, opts Options) {
 	}
 
 	pkgs, err := packages.Load(&packages.Config{
-		Dir:   module.absDir,
-		Tests: opts.IncludeTests,
+		Dir:        module.absDir,
+		Tests:      opts.IncludeTests,
+		BuildFlags: buildFlags(opts.BuildTags),
 		Mode: packages.NeedName |
 			packages.NeedFiles |
 			packages.NeedCompiledGoFiles |
@@ -60,6 +61,14 @@ func applyTypedInfo(root string, module *moduleState, opts Options) {
 	interfaceMethodUses := collectInterfaceMethodUses(pkgs, typedDecls)
 
 	markTypedDeclarations(module, typedDecls, usesByObject, interfaceMethodUses)
+}
+
+func buildFlags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	return []string{"-tags=" + strings.Join(tags, ",")}
 }
 
 func collectTypedDeclarations(root string, pkg *packages.Package, typedDecls map[declarationKey][]typedDeclaration) {

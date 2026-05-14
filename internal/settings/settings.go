@@ -27,6 +27,8 @@ type Config struct {
 	FailOnIssues    *bool             `json:"failOnIssues"`
 	Rules           map[string]string `json:"rules"`
 	IgnorePatterns  []string          `json:"ignorePatterns"`
+	Workspace       []string          `json:"workspace"`
+	BuildTags       []string          `json:"buildTags"`
 	Health          Health            `json:"health"`
 }
 

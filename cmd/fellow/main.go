@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"fellow/internal/analyzer"
@@ -20,8 +21,12 @@ const (
 	exitIssues = 1
 	exitError  = 2
 
-	formatHuman = "human"
-	formatJSON  = "json"
+	formatHuman             = "human"
+	formatJSON              = "json"
+	formatSARIF             = "sarif"
+	formatCodeClimate       = "codeclimate"
+	formatGitLabCodeQuality = "gitlab-codequality"
+	formatAnnotations       = "annotations"
 )
 
 func main() {
@@ -29,12 +34,16 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
-	args = normalizeCommand(args)
+	command, args := splitCommand(args)
 
 	var root string
 	var configPath string
 	var baselinePath string
 	var saveBaselinePath string
+	var coveragePath string
+	var baseRef string
+	var workspaceCSV string
+	var tagsCSV string
 	var outputFormat string
 	var maxCyclomatic int
 	var maxCognitive int
@@ -54,8 +63,13 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.StringVar(&configPath, "c", "", "config file path")
 	fs.StringVar(&baselinePath, "baseline", "", "suppress findings recorded in a baseline file")
 	fs.StringVar(&saveBaselinePath, "save-baseline", "", "write current findings to a baseline file")
-	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human or json")
-	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human or json")
+	fs.StringVar(&coveragePath, "coverage", "", "Go coverage profile to annotate findings")
+	fs.StringVar(&baseRef, "base", "HEAD~1", "base ref for audit mode")
+	fs.StringVar(&baseRef, "changed-since", "HEAD~1", "base ref for audit mode")
+	fs.StringVar(&workspaceCSV, "workspace", "", "comma-separated module path or directory filters")
+	fs.StringVar(&tagsCSV, "tags", "", "comma-separated Go build tags")
+	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
+	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
 	fs.IntVar(&maxCyclomatic, "max-cyclomatic", 0, "maximum cyclomatic complexity before reporting")
 	fs.IntVar(&maxCognitive, "max-cognitive", 0, "maximum cognitive complexity before reporting")
 	fs.BoolVar(&production, "production", false, "exclude *_test.go files")
@@ -66,7 +80,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.BoolVar(&ci, "ci", false, "enable CI behavior: fail on findings")
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: %s [dead-code] [flags] [root]\n\n", appName)
+		fmt.Fprintf(stderr, "Usage: %s [dead-code|audit] [flags] [root]\n\n", appName)
 		fmt.Fprintln(stderr, "Analyze Go modules for dead code and dependency drift.")
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
@@ -101,22 +115,32 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if loaded {
 		applyConfig(&root, &outputFormat, &maxCyclomatic, &maxCognitive, &production, &allRequires, &ignoreGenerated, &summaryOnly, &failOnIssues, cfg, seenFlags)
+		if workspaceCSV == "" && len(cfg.Workspace) > 0 {
+			workspaceCSV = strings.Join(cfg.Workspace, ",")
+		}
+		if tagsCSV == "" && len(cfg.BuildTags) > 0 {
+			tagsCSV = strings.Join(cfg.BuildTags, ",")
+		}
 	}
 
-	if outputFormat != formatHuman && outputFormat != formatJSON {
+	if !supportedFormat(outputFormat) {
 		fmt.Fprintf(stderr, "unsupported format %q\n", outputFormat)
 		return exitError
 	}
+	workspacePatterns := splitCSV(workspaceCSV)
+	buildTags := splitCSV(tagsCSV)
 
 	report, err := analyzer.Analyze(analyzer.Options{
-		Root:             root,
-		IncludeTests:     !production,
-		IncludeGenerated: !ignoreGenerated,
-		CheckIndirect:    allRequires,
-		Rules:            cfg.Rules,
-		IgnorePatterns:   cfg.IgnorePatterns,
-		MaxCyclomatic:    maxCyclomatic,
-		MaxCognitive:     maxCognitive,
+		Root:              root,
+		IncludeTests:      !production,
+		IncludeGenerated:  !ignoreGenerated,
+		CheckIndirect:     allRequires,
+		Rules:             cfg.Rules,
+		IgnorePatterns:    cfg.IgnorePatterns,
+		WorkspacePatterns: workspacePatterns,
+		BuildTags:         buildTags,
+		MaxCyclomatic:     maxCyclomatic,
+		MaxCognitive:      maxCognitive,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "analyze: %v\n", err)
@@ -134,6 +158,20 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 			return exitError
 		}
 	}
+	if coveragePath != "" {
+		if err := analyzer.ApplyCoverage(coveragePath, report); err != nil {
+			fmt.Fprintf(stderr, "coverage: %v\n", err)
+			return exitError
+		}
+	}
+	if command == "audit" {
+		changed, err := changedFiles(root, baseRef)
+		if err != nil {
+			fmt.Fprintf(stderr, "audit: %v\n", err)
+			return exitError
+		}
+		filterReportFiles(report, changed)
+	}
 
 	switch outputFormat {
 	case formatJSON:
@@ -143,6 +181,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 	case formatHuman:
 		writeHuman(stdout, report, summaryOnly)
+	case formatSARIF:
+		if err := writeSARIF(stdout, report); err != nil {
+			fmt.Fprintf(stderr, "write sarif: %v\n", err)
+			return exitError
+		}
+	case formatCodeClimate, formatGitLabCodeQuality:
+		if err := writeCodeClimate(stdout, report); err != nil {
+			fmt.Fprintf(stderr, "write code quality: %v\n", err)
+			return exitError
+		}
+	case formatAnnotations:
+		writeAnnotations(stdout, report)
 	}
 
 	if (failOnIssues || ci) && report.Summary.Findings > 0 {
@@ -199,25 +249,242 @@ func applyConfig(root *string, outputFormat *string, maxCyclomatic *int, maxCogn
 	}
 }
 
-func normalizeCommand(args []string) []string {
+func supportedFormat(format string) bool {
+	switch format {
+	case formatHuman, formatJSON, formatSARIF, formatCodeClimate, formatGitLabCodeQuality, formatAnnotations:
+		return true
+	default:
+		return false
+	}
+}
+
+func splitCommand(args []string) (string, []string) {
 	if len(args) == 0 {
-		return args
+		return "check", args
 	}
 
 	switch args[0] {
-	case "dead-code", "check":
-		return args[1:]
+	case "dead-code", "check", "audit":
+		return args[0], args[1:]
 	case "help":
-		return []string{"-h"}
+		return "help", []string{"-h"}
 	default:
-		return args
+		return "check", args
 	}
+}
+
+func splitCSV(value string) []string {
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+
+	return items
+}
+
+func changedFiles(root string, baseRef string) (map[string]struct{}, error) {
+	files := make(map[string]struct{})
+	if err := addChangedFiles(files, root, baseRef); err != nil {
+		return nil, err
+	}
+	if err := addChangedFiles(files, root, ""); err != nil {
+		return nil, err
+	}
+
+	return files, nil
+}
+
+func addChangedFiles(files map[string]struct{}, root string, baseRef string) error {
+	args := []string{"-C", root, "diff", "--name-only", "--relative"}
+	if baseRef != "" {
+		args = append(args, baseRef)
+	}
+	cmd := exec.Command("git", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("git diff %s: %w", baseRef, err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files[line] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func filterReportFiles(report *analyzer.Report, files map[string]struct{}) {
+	for moduleIndex := range report.Modules {
+		findings := report.Modules[moduleIndex].Findings
+		active := findings[:0]
+		for _, finding := range findings {
+			if findingTouchesFile(finding, files) {
+				active = append(active, finding)
+			}
+		}
+		report.Modules[moduleIndex].Findings = active
+	}
+	analyzer.RefreshReport(report)
+}
+
+func findingTouchesFile(finding analyzer.Finding, files map[string]struct{}) bool {
+	if _, ok := files[finding.File]; ok {
+		return true
+	}
+	for _, location := range finding.Locations {
+		if _, ok := files[location.File]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func writeJSON(w io.Writer, report *analyzer.Report) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
+}
+
+func writeSARIF(w io.Writer, report *analyzer.Report) error {
+	type sarifLocation struct {
+		PhysicalLocation struct {
+			ArtifactLocation struct {
+				URI string `json:"uri"`
+			} `json:"artifactLocation"`
+			Region struct {
+				StartLine int `json:"startLine"`
+			} `json:"region"`
+		} `json:"physicalLocation"`
+	}
+	type sarifResult struct {
+		RuleID    string            `json:"ruleId"`
+		Level     string            `json:"level"`
+		Message   map[string]string `json:"message"`
+		Locations []sarifLocation   `json:"locations"`
+	}
+	type sarifRun struct {
+		Tool struct {
+			Driver struct {
+				Name string `json:"name"`
+			} `json:"driver"`
+		} `json:"tool"`
+		Results []sarifResult `json:"results"`
+	}
+	output := struct {
+		Version string     `json:"version"`
+		Schema  string     `json:"$schema"`
+		Runs    []sarifRun `json:"runs"`
+	}{
+		Version: "2.1.0",
+		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Runs:    []sarifRun{{}},
+	}
+	output.Runs[0].Tool.Driver.Name = appName
+	output.Runs[0].Results = []sarifResult{}
+	for _, finding := range allFindings(report) {
+		var loc sarifLocation
+		loc.PhysicalLocation.ArtifactLocation.URI = finding.File
+		loc.PhysicalLocation.Region.StartLine = finding.Line
+		output.Runs[0].Results = append(output.Runs[0].Results, sarifResult{
+			RuleID:    finding.Type,
+			Level:     "warning",
+			Message:   map[string]string{"text": findingMessage(finding)},
+			Locations: []sarifLocation{loc},
+		})
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
+}
+
+func writeCodeClimate(w io.Writer, report *analyzer.Report) error {
+	type location struct {
+		Path  string `json:"path"`
+		Lines struct {
+			Begin int `json:"begin"`
+		} `json:"lines"`
+	}
+	type issue struct {
+		Type        string   `json:"type"`
+		CheckName   string   `json:"check_name"`
+		Description string   `json:"description"`
+		Categories  []string `json:"categories"`
+		Fingerprint string   `json:"fingerprint"`
+		Severity    string   `json:"severity"`
+		Location    location `json:"location"`
+	}
+	issues := make([]issue, 0)
+	for _, finding := range allFindings(report) {
+		item := issue{
+			Type:        "issue",
+			CheckName:   finding.Type,
+			Description: findingMessage(finding),
+			Categories:  []string{"Bug Risk"},
+			Fingerprint: finding.Fingerprint,
+			Severity:    "minor",
+		}
+		item.Location.Path = finding.File
+		item.Location.Lines.Begin = finding.Line
+		issues = append(issues, item)
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(issues)
+}
+
+func writeAnnotations(w io.Writer, report *analyzer.Report) {
+	for _, finding := range allFindings(report) {
+		fmt.Fprintf(w, "::warning file=%s,line=%d::%s\n", escapeAnnotationProperty(finding.File), finding.Line, escapeAnnotation(findingMessage(finding)))
+	}
+}
+
+func allFindings(report *analyzer.Report) []analyzer.Finding {
+	var findings []analyzer.Finding
+	for _, module := range report.Modules {
+		findings = append(findings, module.Findings...)
+	}
+
+	return findings
+}
+
+func findingMessage(finding analyzer.Finding) string {
+	if finding.Symbol != "" {
+		return fmt.Sprintf("%s: %s", finding.Type, finding.Symbol)
+	}
+	if finding.Module != "" {
+		return fmt.Sprintf("%s: %s", finding.Type, finding.Module)
+	}
+	if finding.ImportPath != "" {
+		return fmt.Sprintf("%s: %s", finding.Type, finding.ImportPath)
+	}
+
+	return finding.Type
+}
+
+func escapeAnnotation(value string) string {
+	value = strings.ReplaceAll(value, "%", "%25")
+	value = strings.ReplaceAll(value, "\r", "%0D")
+	value = strings.ReplaceAll(value, "\n", "%0A")
+	return value
+}
+
+func escapeAnnotationProperty(value string) string {
+	value = escapeAnnotation(value)
+	value = strings.ReplaceAll(value, ":", "%3A")
+	value = strings.ReplaceAll(value, ",", "%2C")
+	return value
 }
 
 func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
@@ -233,6 +500,13 @@ func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
 	}
 	if report.Summary.SuppressedByBaseline > 0 {
 		fmt.Fprintf(w, "  suppressed by baseline: %d\n", report.Summary.SuppressedByBaseline)
+	}
+	if report.Summary.SkippedModules > 0 {
+		fmt.Fprintf(w, "  skipped modules: %d\n", report.Summary.SkippedModules)
+	}
+	if report.Summary.CoveredFindings > 0 || report.Summary.UncoveredFindings > 0 {
+		fmt.Fprintf(w, "  covered findings: %d\n", report.Summary.CoveredFindings)
+		fmt.Fprintf(w, "  uncovered findings: %d\n", report.Summary.UncoveredFindings)
 	}
 	fmt.Fprintf(w, "  unused dependencies: %d\n", report.Summary.UnusedDependencies)
 	fmt.Fprintf(w, "  unlisted dependencies: %d\n", report.Summary.UnlistedDependencies)

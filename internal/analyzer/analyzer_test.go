@@ -125,6 +125,70 @@ import _ "github.com/child/only/pkg"
 	}
 }
 
+func TestAnalyzeFiltersWorkspaceModules(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/root
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+	writeFile(t, root, "child/go.mod", `module example.com/child
+
+go 1.25
+`)
+	writeFile(t, root, "child/child.go", `package child
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, WorkspacePatterns: []string{"example.com/child"}})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.Modules; got != 1 {
+		t.Fatalf("modules = %d; want 1", got)
+	}
+	if got := report.Summary.SkippedModules; got != 1 {
+		t.Fatalf("skipped modules = %d; want 1", got)
+	}
+	if got := report.Modules[0].ModulePath; got != "example.com/child" {
+		t.Fatalf("module path = %q; want example.com/child", got)
+	}
+}
+
+func TestAnalyzeAppliesBuildTags(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+	writeFile(t, root, "tagged.go", `//go:build integration
+
+package main
+
+func TaggedDead() {}
+`)
+
+	withoutTags, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() without tags error = %v", err)
+	}
+	assertNoSymbolFinding(t, withoutTags, FindingUnusedFunction, "TaggedDead")
+
+	withTags, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, BuildTags: []string{"integration"}})
+	if err != nil {
+		t.Fatalf("Analyze() with tags error = %v", err)
+	}
+	assertSymbolFinding(t, withTags, FindingUnusedFunction, "TaggedDead")
+}
+
 func TestAnalyzeCanIgnoreGeneratedFiles(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", `module example.com/app
@@ -548,6 +612,51 @@ func Dead() {}
 	}
 	if got := report.Summary.SuppressedByBaseline; got != 1 {
 		t.Fatalf("suppressed by baseline = %d; want 1", got)
+	}
+}
+
+func TestApplyCoverageAnnotatesFindings(t *testing.T) {
+	root := t.TempDir()
+	coveragePath := filepath.Join(root, "coverage.out")
+	writeFile(t, root, "coverage.out", `mode: set
+example.com/app/main.go:9.1,10.20 1 1
+example.com/app/main.go:12.1,12.20 1 0
+`)
+	report := &Report{
+		Modules: []ModuleReport{{
+			ModulePath: "example.com/app",
+			Dir:        ".",
+			Findings: []Finding{
+				{Type: FindingUnusedFunction, File: "main.go", Line: 10, Symbol: "Covered"},
+				{Type: FindingUnusedFunction, File: "main.go", Line: 12, Symbol: "Uncovered"},
+				{Type: FindingUnusedFunction, File: "other.go", Line: 5, Symbol: "Unknown"},
+			},
+		}},
+	}
+	report.Summary.SkippedModules = 1
+
+	if err := ApplyCoverage(coveragePath, report); err != nil {
+		t.Fatalf("ApplyCoverage() error = %v", err)
+	}
+
+	findings := report.Modules[0].Findings
+	if findings[0].Coverage == nil || !findings[0].Coverage.Covered || findings[0].Coverage.Count != 1 {
+		t.Fatalf("covered finding coverage = %#v; want covered count 1", findings[0].Coverage)
+	}
+	if findings[1].Coverage == nil || findings[1].Coverage.Covered {
+		t.Fatalf("uncovered finding coverage = %#v; want uncovered", findings[1].Coverage)
+	}
+	if findings[2].Coverage != nil {
+		t.Fatalf("unmatched finding coverage = %#v; want nil", findings[2].Coverage)
+	}
+	if got := report.Summary.CoveredFindings; got != 1 {
+		t.Fatalf("covered findings = %d; want 1", got)
+	}
+	if got := report.Summary.UncoveredFindings; got != 1 {
+		t.Fatalf("uncovered findings = %d; want 1", got)
+	}
+	if got := report.Summary.SkippedModules; got != 1 {
+		t.Fatalf("skipped modules = %d; want 1", got)
 	}
 }
 

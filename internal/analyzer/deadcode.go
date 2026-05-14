@@ -3,6 +3,7 @@ package analyzer
 import (
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -147,6 +148,9 @@ func scanModulePackages(root string, module moduleState, moduleDirs map[string]s
 		if !opts.IncludeTests && strings.HasSuffix(d.Name(), testFileSuffix) {
 			return nil
 		}
+		if !matchesBuildContext(path, opts.BuildTags) {
+			return nil
+		}
 
 		source, err := parseSourceFile(root, path, opts)
 		if err != nil {
@@ -188,6 +192,13 @@ func scanModulePackages(root string, module moduleState, moduleDirs map[string]s
 	sortImportUses(imports)
 
 	return packages, imports, nil
+}
+
+func matchesBuildContext(path string, buildTags []string) bool {
+	ctx := build.Default
+	ctx.BuildTags = buildTags
+	matched, err := ctx.MatchFile(filepath.Dir(path), filepath.Base(path))
+	return err == nil && matched
 }
 
 func parseSourceFile(root string, path string, opts Options) (*sourceFile, error) {
