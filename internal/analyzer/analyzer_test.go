@@ -418,6 +418,58 @@ func (customError) Error() string { return "custom" }
 	assertNoSymbolFinding(t, report, FindingUnusedMethod, "Error")
 }
 
+func TestAnalyzeAppliesRuleConfig(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{
+		Root:             root,
+		IncludeTests:     true,
+		IncludeGenerated: true,
+		Rules:            map[string]string{FindingUnusedFunction: ruleOffSeverity},
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.UnusedFunctions; got != 0 {
+		t.Fatalf("unused functions = %d; want 0", got)
+	}
+}
+
+func TestAnalyzeAppliesIgnorePatterns(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "ignored/dead.go", `package ignored
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{
+		Root:             root,
+		IncludeTests:     true,
+		IncludeGenerated: true,
+		IgnorePatterns:   []string{"ignored/**"},
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.Findings; got != 0 {
+		t.Fatalf("findings = %d; want 0", got)
+	}
+}
+
 func assertFinding(t *testing.T, report *Report, findingType string, value string) {
 	t.Helper()
 

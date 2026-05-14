@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"fellow/internal/analyzer"
+	"fellow/internal/settings"
 )
 
 const (
@@ -31,6 +32,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	args = normalizeCommand(args)
 
 	var root string
+	var configPath string
 	var outputFormat string
 	var production bool
 	var allRequires bool
@@ -44,6 +46,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.StringVar(&root, "root", ".", "project root to scan")
 	fs.StringVar(&root, "r", ".", "project root to scan")
+	fs.StringVar(&configPath, "config", "", "config file path")
+	fs.StringVar(&configPath, "c", "", "config file path")
 	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human or json")
 	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human or json")
 	fs.BoolVar(&production, "production", false, "exclude *_test.go files")
@@ -76,8 +80,19 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "expected at most one root argument, got %d\n", fs.NArg())
 		return exitError
 	}
+	seenFlags := visitedFlags(fs)
 	if fs.NArg() == 1 {
 		root = fs.Arg(0)
+		seenFlags["root"] = true
+	}
+
+	cfg, loaded, err := loadConfig(root, configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "config: %v\n", err)
+		return exitError
+	}
+	if loaded {
+		applyConfig(&root, &outputFormat, &production, &allRequires, &ignoreGenerated, &summaryOnly, &failOnIssues, cfg, seenFlags)
 	}
 
 	if outputFormat != formatHuman && outputFormat != formatJSON {
@@ -90,6 +105,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		IncludeTests:     !production,
 		IncludeGenerated: !ignoreGenerated,
 		CheckIndirect:    allRequires,
+		Rules:            cfg.Rules,
+		IgnorePatterns:   cfg.IgnorePatterns,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "analyze: %v\n", err)
@@ -111,6 +128,47 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	return exitOK
+}
+
+func visitedFlags(fs *flag.FlagSet) map[string]bool {
+	seen := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		seen[f.Name] = true
+	})
+
+	return seen
+}
+
+func loadConfig(root string, configPath string) (settings.Config, bool, error) {
+	if configPath != "" {
+		return settings.Load(configPath)
+	}
+
+	return settings.Load(settings.DefaultPath(root))
+}
+
+func applyConfig(root *string, outputFormat *string, production *bool, allRequires *bool, ignoreGenerated *bool, summaryOnly *bool, failOnIssues *bool, cfg settings.Config, seen map[string]bool) {
+	if cfg.Root != "" && !seen["root"] && !seen["r"] {
+		*root = cfg.Root
+	}
+	if cfg.Format != "" && !seen["format"] && !seen["f"] {
+		*outputFormat = cfg.Format
+	}
+	if cfg.Production != nil && !seen["production"] {
+		*production = *cfg.Production
+	}
+	if cfg.AllRequires != nil && !seen["all-requires"] {
+		*allRequires = *cfg.AllRequires
+	}
+	if cfg.IgnoreGenerated != nil && !seen["ignore-generated"] {
+		*ignoreGenerated = *cfg.IgnoreGenerated
+	}
+	if cfg.Summary != nil && !seen["summary"] {
+		*summaryOnly = *cfg.Summary
+	}
+	if cfg.FailOnIssues != nil && !seen["fail-on-issues"] {
+		*failOnIssues = *cfg.FailOnIssues
+	}
 }
 
 func normalizeCommand(args []string) []string {

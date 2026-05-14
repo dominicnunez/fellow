@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,6 +14,8 @@ import (
 )
 
 const (
+	SchemaVersion = "1"
+
 	FindingUnusedDependency   = "unused-dependency"
 	FindingUnlistedDependency = "unlisted-dependency"
 	FindingTestOnlyDependency = "test-only-dependency"
@@ -30,6 +34,7 @@ const (
 	generatedHeaderScanLimit = 2048
 	generatedMarker          = "Code generated"
 	generatedDoNotEditMarker = "DO NOT EDIT"
+	ruleOffSeverity          = "off"
 )
 
 type Options struct {
@@ -37,12 +42,15 @@ type Options struct {
 	IncludeTests     bool
 	IncludeGenerated bool
 	CheckIndirect    bool
+	Rules            map[string]string
+	IgnorePatterns   []string
 }
 
 type Report struct {
-	Root    string         `json:"root"`
-	Modules []ModuleReport `json:"modules"`
-	Summary Summary        `json:"summary"`
+	SchemaVersion string         `json:"schema_version"`
+	Root          string         `json:"root"`
+	Modules       []ModuleReport `json:"modules"`
+	Summary       Summary        `json:"summary"`
 }
 
 type Summary struct {
@@ -145,8 +153,9 @@ func Analyze(opts Options) (*Report, error) {
 	}
 
 	report := &Report{
-		Root:    filepath.ToSlash(absRoot),
-		Modules: make([]ModuleReport, 0, len(modules)),
+		SchemaVersion: SchemaVersion,
+		Root:          filepath.ToSlash(absRoot),
+		Modules:       make([]ModuleReport, 0, len(modules)),
 	}
 	for _, module := range modules {
 		report.Modules = append(report.Modules, module.report)
@@ -293,6 +302,7 @@ func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Opt
 		}
 	}
 	findings = append(findings, deadCodeFindings(module)...)
+	findings = filterFindings(findings, opts)
 
 	sortFindings(findings)
 
@@ -321,6 +331,84 @@ func unlistedDependencyFindings(unlistedByImport map[string][]ImportUse) []Findi
 	}
 
 	return findings
+}
+
+func filterFindings(findings []Finding, opts Options) []Finding {
+	if len(opts.Rules) == 0 && len(opts.IgnorePatterns) == 0 {
+		return findings
+	}
+
+	filtered := findings[:0]
+	for _, finding := range findings {
+		if opts.Rules[finding.Type] == ruleOffSeverity {
+			continue
+		}
+		if ignoredByPattern(finding.File, opts.IgnorePatterns) {
+			continue
+		}
+		filtered = append(filtered, finding)
+	}
+
+	return filtered
+}
+
+func ignoredByPattern(file string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matchPathPattern(pattern, file) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchPathPattern(pattern string, file string) bool {
+	pattern = normalizePatternPath(pattern)
+	file = normalizePatternPath(file)
+	if pattern == file {
+		return true
+	}
+	if ok, _ := path.Match(pattern, file); ok {
+		return true
+	}
+	if !strings.Contains(pattern, "/") {
+		if ok, _ := path.Match(pattern, path.Base(file)); ok {
+			return true
+		}
+	}
+
+	matched, err := regexp.MatchString(globRegex(pattern), file)
+	return err == nil && matched
+}
+
+func normalizePatternPath(value string) string {
+	value = filepath.ToSlash(value)
+	value = strings.TrimPrefix(value, "./")
+	return value
+}
+
+func globRegex(pattern string) string {
+	var b strings.Builder
+	b.WriteString("^")
+	for i := 0; i < len(pattern); i++ {
+		ch := pattern[i]
+		switch ch {
+		case '*':
+			if i+1 < len(pattern) && pattern[i+1] == '*' {
+				b.WriteString(".*")
+				i++
+				continue
+			}
+			b.WriteString("[^/]*")
+		case '?':
+			b.WriteString("[^/]")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(ch)))
+		}
+	}
+	b.WriteString("$")
+
+	return b.String()
 }
 
 func usedInOtherModules(root string, modules []moduleState, moduleIndex int, modulePath string) []string {
