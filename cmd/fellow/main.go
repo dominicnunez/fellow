@@ -230,6 +230,10 @@ func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
 	fmt.Fprintf(w, "  unused functions: %d\n", report.Summary.UnusedFunctions)
 	fmt.Fprintf(w, "  unused methods: %d\n", report.Summary.UnusedMethods)
 	fmt.Fprintf(w, "  unused structs: %d\n", report.Summary.UnusedStructs)
+	fmt.Fprintf(w, "  unused interfaces: %d\n", report.Summary.UnusedInterfaces)
+	fmt.Fprintf(w, "  unused types: %d\n", report.Summary.UnusedTypes)
+	fmt.Fprintf(w, "  unused vars: %d\n", report.Summary.UnusedVars)
+	fmt.Fprintf(w, "  unused consts: %d\n", report.Summary.UnusedConsts)
 	fmt.Fprintf(w, "  unused fields: %d\n", report.Summary.UnusedFields)
 }
 
@@ -275,6 +279,14 @@ func writeHumanFinding(w io.Writer, finding analyzer.Finding) {
 		fmt.Fprintf(w, "  unused method %s.%s in %s at %s:%d\n", finding.Receiver, finding.Symbol, finding.Package, finding.File, finding.Line)
 	case analyzer.FindingUnusedStruct:
 		fmt.Fprintf(w, "  unused struct %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	case analyzer.FindingUnusedInterface:
+		fmt.Fprintf(w, "  unused interface %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	case analyzer.FindingUnusedType:
+		fmt.Fprintf(w, "  unused type %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	case analyzer.FindingUnusedVar:
+		fmt.Fprintf(w, "  unused var %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	case analyzer.FindingUnusedConst:
+		fmt.Fprintf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 	case analyzer.FindingUnusedField:
 		fmt.Fprintf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
 	default:

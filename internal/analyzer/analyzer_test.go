@@ -551,6 +551,49 @@ func Dead() {}
 	}
 }
 
+func TestAnalyzeReportsAdditionalSymbolKinds(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+
+type unusedInterface interface { Run() }
+type unusedAlias = string
+var unusedVar = 1
+const unusedConst = 2
+
+var sideEffectVar = makeValue()
+
+func makeValue() int { return 1 }
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.UnusedInterfaces; got != 1 {
+		t.Fatalf("unused interfaces = %d; want 1", got)
+	}
+	if got := report.Summary.UnusedTypes; got != 1 {
+		t.Fatalf("unused types = %d; want 1", got)
+	}
+	if got := report.Summary.UnusedVars; got != 1 {
+		t.Fatalf("unused vars = %d; want 1", got)
+	}
+	if got := report.Summary.UnusedConsts; got != 1 {
+		t.Fatalf("unused consts = %d; want 1", got)
+	}
+	assertSymbolFinding(t, report, FindingUnusedInterface, "unusedInterface")
+	assertSymbolFinding(t, report, FindingUnusedType, "unusedAlias")
+	assertSymbolFinding(t, report, FindingUnusedVar, "unusedVar")
+	assertSymbolFinding(t, report, FindingUnusedConst, "unusedConst")
+	assertNoSymbolFinding(t, report, FindingUnusedVar, "sideEffectVar")
+}
+
 func assertFinding(t *testing.T, report *Report, findingType string, value string) {
 	t.Helper()
 

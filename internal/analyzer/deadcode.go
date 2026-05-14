@@ -28,11 +28,14 @@ const (
 	fuzzFunctionPrefix    = "Fuzz"
 	exampleFunctionPrefix = "Example"
 
-	declarationFunction = "function"
-	declarationMethod   = "method"
-	declarationStruct   = "struct"
-	declarationType     = "type"
-	declarationField    = "field"
+	declarationFunction  = "function"
+	declarationMethod    = "method"
+	declarationStruct    = "struct"
+	declarationInterface = "interface"
+	declarationType      = "type"
+	declarationVar       = "var"
+	declarationConst     = "const"
+	declarationField     = "field"
 
 	majorVersionPrefix = "v"
 	noLine             = 0
@@ -85,18 +88,19 @@ type sourceFile struct {
 }
 
 type declaration struct {
-	Kind      string
-	Name      string
-	Receiver  string
-	Struct    string
-	FieldType string
-	File      string
-	Line      int
-	EndLine   int
-	HasTag    bool
-	Special   bool
-	Typed     bool
-	TypedUsed bool
+	Kind       string
+	Name       string
+	Receiver   string
+	Struct     string
+	FieldType  string
+	File       string
+	Line       int
+	EndLine    int
+	HasTag     bool
+	Special    bool
+	SideEffect bool
+	Typed      bool
+	TypedUsed  bool
 }
 
 type codeUse struct {
@@ -474,17 +478,62 @@ func collectGenDeclaration(pkg *packageState, source *sourceFile, decl *ast.GenD
 			collectTypeDeclaration(pkg, source, typeSpec, ignoredPositions)
 		}
 	case token.VAR, token.CONST:
-		source.hasTopLevelValue = true
 		for _, spec := range decl.Specs {
 			valueSpec, ok := spec.(*ast.ValueSpec)
 			if !ok {
 				continue
 			}
-			for _, name := range valueSpec.Names {
-				ignoredPositions[name.Pos()] = struct{}{}
-			}
+			collectValueDeclarations(pkg, source, decl.Tok, valueSpec, ignoredPositions)
 		}
 	}
+}
+
+func collectValueDeclarations(pkg *packageState, source *sourceFile, tok token.Token, spec *ast.ValueSpec, ignoredPositions map[token.Pos]struct{}) {
+	kind := declarationVar
+	if tok == token.CONST {
+		kind = declarationConst
+	}
+	sideEffect := tok == token.VAR && valueSpecHasSideEffect(spec)
+	if sideEffect {
+		source.hasTopLevelValue = true
+	}
+
+	for _, name := range spec.Names {
+		ignoredPositions[name.Pos()] = struct{}{}
+		startLine, endLine := lineRange(source.fset, name)
+		pkg.declarations = append(pkg.declarations, declaration{
+			Kind:       kind,
+			Name:       name.Name,
+			File:       source.relPath,
+			Line:       startLine,
+			EndLine:    endLine,
+			SideEffect: sideEffect,
+		})
+	}
+}
+
+func valueSpecHasSideEffect(spec *ast.ValueSpec) bool {
+	for _, value := range spec.Values {
+		if exprHasCall(value) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func exprHasCall(expr ast.Expr) bool {
+	found := false
+	ast.Inspect(expr, func(node ast.Node) bool {
+		if _, ok := node.(*ast.CallExpr); ok {
+			found = true
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func collectTypeDeclaration(pkg *packageState, source *sourceFile, spec *ast.TypeSpec, ignoredPositions map[token.Pos]struct{}) {
@@ -504,7 +553,7 @@ func collectTypeDeclaration(pkg *packageState, source *sourceFile, spec *ast.Typ
 		collectStructFields(pkg, source, spec.Name.Name, typ, ignoredPositions)
 	case *ast.InterfaceType:
 		pkg.declarations = append(pkg.declarations, declaration{
-			Kind:    declarationType,
+			Kind:    declarationInterface,
 			Name:    spec.Name.Name,
 			File:    source.relPath,
 			Line:    startLine,
@@ -793,12 +842,6 @@ func deadCodeFindings(module moduleState) []Finding {
 			if decl.Kind == declarationField {
 				continue
 			}
-			if decl.Kind == declarationType {
-				if declarationUsed(pkg, decl, usage, reflectiveStructs[i]) {
-					fileHasLiveDeclaration[decl.File] = true
-				}
-				continue
-			}
 			if decl.Kind == declarationMethod && deadStructs[packageSymbolKey(i, decl.Receiver)] {
 				continue
 			}
@@ -1004,20 +1047,13 @@ func declarationUsed(pkg packageState, decl declaration, usage moduleUsage, refl
 	}
 
 	switch decl.Kind {
-	case declarationFunction, declarationStruct:
+	case declarationFunction, declarationStruct, declarationInterface, declarationType, declarationVar, declarationConst:
+		if decl.SideEffect {
+			return true
+		}
 		if _, ok := reflectiveStructs[decl.Name]; ok {
 			return true
 		}
-		if hasUseOutside(pkg.usedNames[decl.Name], decl) {
-			return true
-		}
-		if hasUseOutside(usage.packageSymbolUses[pkg.realImportPath][decl.Name], decl) {
-			return true
-		}
-		if _, ok := usage.dotImports[pkg.realImportPath]; ok && ast.IsExported(decl.Name) {
-			return true
-		}
-	case declarationType:
 		if hasUseOutside(pkg.usedNames[decl.Name], decl) {
 			return true
 		}
@@ -1050,13 +1086,14 @@ func declarationUsed(pkg packageState, decl declaration, usage moduleUsage, refl
 }
 
 func typedDeclarationUsed(pkg packageState, decl declaration, usage moduleUsage, reflectiveStructs map[string]struct{}) bool {
+	if decl.SideEffect {
+		return true
+	}
 	switch decl.Kind {
-	case declarationFunction, declarationStruct:
+	case declarationFunction, declarationStruct, declarationInterface, declarationType, declarationVar, declarationConst:
 		if _, ok := reflectiveStructs[decl.Name]; ok {
 			return true
 		}
-		return decl.TypedUsed
-	case declarationType:
 		return decl.TypedUsed
 	case declarationMethod:
 		return decl.TypedUsed
@@ -1119,6 +1156,14 @@ func findingTypeForDeclaration(decl declaration) string {
 		return FindingUnusedMethod
 	case declarationStruct:
 		return FindingUnusedStruct
+	case declarationInterface:
+		return FindingUnusedInterface
+	case declarationType:
+		return FindingUnusedType
+	case declarationVar:
+		return FindingUnusedVar
+	case declarationConst:
+		return FindingUnusedConst
 	case declarationField:
 		return FindingUnusedField
 	default:

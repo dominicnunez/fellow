@@ -64,6 +64,7 @@ func applyTypedInfo(root string, module *moduleState, opts Options) {
 
 func collectTypedDeclarations(root string, pkg *packages.Package, typedDecls map[declarationKey][]typedDeclaration) {
 	for _, file := range pkg.Syntax {
+		collectTypedValueDeclarations(root, pkg, file, typedDecls)
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch n := node.(type) {
 			case nil:
@@ -94,8 +95,11 @@ func collectTypedDeclarations(root string, pkg *packages.Package, typedDecls map
 					return true
 				}
 				kind := declarationType
-				if _, ok := n.Type.(*ast.StructType); ok {
+				switch n.Type.(type) {
+				case *ast.StructType:
 					kind = declarationStruct
+				case *ast.InterfaceType:
+					kind = declarationInterface
 				}
 				key := declarationKey{
 					Kind: kind,
@@ -130,6 +134,39 @@ func collectTypedDeclarations(root string, pkg *packages.Package, typedDecls map
 
 			return true
 		})
+	}
+}
+
+func collectTypedValueDeclarations(root string, pkg *packages.Package, file *ast.File, typedDecls map[declarationKey][]typedDeclaration) {
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || (genDecl.Tok != token.VAR && genDecl.Tok != token.CONST) {
+			continue
+		}
+
+		kind := declarationVar
+		if genDecl.Tok == token.CONST {
+			kind = declarationConst
+		}
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range valueSpec.Names {
+				obj := pkg.TypesInfo.Defs[name]
+				if obj == nil {
+					continue
+				}
+				key := declarationKey{
+					Kind: kind,
+					Name: name.Name,
+					File: typedRelPath(root, pkg, name.Pos()),
+					Line: pkg.Fset.Position(name.Pos()).Line,
+				}
+				typedDecls[key] = append(typedDecls[key], typedDeclaration{key: key, obj: obj})
+			}
+		}
 	}
 }
 

@@ -26,6 +26,10 @@ const (
 	FindingUnusedFunction     = "unused-function"
 	FindingUnusedMethod       = "unused-method"
 	FindingUnusedStruct       = "unused-struct"
+	FindingUnusedInterface    = "unused-interface"
+	FindingUnusedType         = "unused-type"
+	FindingUnusedVar          = "unused-var"
+	FindingUnusedConst        = "unused-const"
 	FindingUnusedField        = "unused-field"
 
 	goModFileName  = "go.mod"
@@ -69,6 +73,10 @@ type Summary struct {
 	UnusedFunctions      int `json:"unused_functions"`
 	UnusedMethods        int `json:"unused_methods"`
 	UnusedStructs        int `json:"unused_structs"`
+	UnusedInterfaces     int `json:"unused_interfaces"`
+	UnusedTypes          int `json:"unused_types"`
+	UnusedVars           int `json:"unused_vars"`
+	UnusedConsts         int `json:"unused_consts"`
 	UnusedFields         int `json:"unused_fields"`
 }
 
@@ -551,6 +559,14 @@ func summarize(modules []ModuleReport) Summary {
 				summary.UnusedMethods++
 			case FindingUnusedStruct:
 				summary.UnusedStructs++
+			case FindingUnusedInterface:
+				summary.UnusedInterfaces++
+			case FindingUnusedType:
+				summary.UnusedTypes++
+			case FindingUnusedVar:
+				summary.UnusedVars++
+			case FindingUnusedConst:
+				summary.UnusedConsts++
 			case FindingUnusedField:
 				summary.UnusedFields++
 			}

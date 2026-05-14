@@ -13,6 +13,7 @@ It builds a repo-wide view of `go.mod` requirements, Go packages, and Go source 
 - Unused internal packages that are not reachable from module roots, `main` packages, or tests
 - Unused files whose declarations are all unused
 - Unused functions, methods, structs, and struct fields in reachable packages
+- Unused interfaces, type aliases, package-level vars, and consts
 
 Nested Go modules are analyzed independently, and imports from child modules are not attributed to parent modules.
 
