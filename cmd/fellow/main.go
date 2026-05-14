@@ -36,6 +36,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	var baselinePath string
 	var saveBaselinePath string
 	var outputFormat string
+	var maxCyclomatic int
+	var maxCognitive int
 	var production bool
 	var allRequires bool
 	var ignoreGenerated bool
@@ -54,6 +56,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.StringVar(&saveBaselinePath, "save-baseline", "", "write current findings to a baseline file")
 	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human or json")
 	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human or json")
+	fs.IntVar(&maxCyclomatic, "max-cyclomatic", 0, "maximum cyclomatic complexity before reporting")
+	fs.IntVar(&maxCognitive, "max-cognitive", 0, "maximum cognitive complexity before reporting")
 	fs.BoolVar(&production, "production", false, "exclude *_test.go files")
 	fs.BoolVar(&allRequires, "all-requires", false, "also check indirect requirements for unused status")
 	fs.BoolVar(&ignoreGenerated, "ignore-generated", false, "skip generated Go files")
@@ -96,7 +100,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return exitError
 	}
 	if loaded {
-		applyConfig(&root, &outputFormat, &production, &allRequires, &ignoreGenerated, &summaryOnly, &failOnIssues, cfg, seenFlags)
+		applyConfig(&root, &outputFormat, &maxCyclomatic, &maxCognitive, &production, &allRequires, &ignoreGenerated, &summaryOnly, &failOnIssues, cfg, seenFlags)
 	}
 
 	if outputFormat != formatHuman && outputFormat != formatJSON {
@@ -111,6 +115,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		CheckIndirect:    allRequires,
 		Rules:            cfg.Rules,
 		IgnorePatterns:   cfg.IgnorePatterns,
+		MaxCyclomatic:    maxCyclomatic,
+		MaxCognitive:     maxCognitive,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "analyze: %v\n", err)
@@ -163,12 +169,18 @@ func loadConfig(root string, configPath string) (settings.Config, bool, error) {
 	return settings.Load(settings.DefaultPath(root))
 }
 
-func applyConfig(root *string, outputFormat *string, production *bool, allRequires *bool, ignoreGenerated *bool, summaryOnly *bool, failOnIssues *bool, cfg settings.Config, seen map[string]bool) {
+func applyConfig(root *string, outputFormat *string, maxCyclomatic *int, maxCognitive *int, production *bool, allRequires *bool, ignoreGenerated *bool, summaryOnly *bool, failOnIssues *bool, cfg settings.Config, seen map[string]bool) {
 	if cfg.Root != "" && !seen["root"] && !seen["r"] {
 		*root = cfg.Root
 	}
 	if cfg.Format != "" && !seen["format"] && !seen["f"] {
 		*outputFormat = cfg.Format
+	}
+	if cfg.Health.MaxCyclomatic != 0 && !seen["max-cyclomatic"] {
+		*maxCyclomatic = cfg.Health.MaxCyclomatic
+	}
+	if cfg.Health.MaxCognitive != 0 && !seen["max-cognitive"] {
+		*maxCognitive = cfg.Health.MaxCognitive
 	}
 	if cfg.Production != nil && !seen["production"] {
 		*production = *cfg.Production
@@ -235,6 +247,9 @@ func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
 	fmt.Fprintf(w, "  unused vars: %d\n", report.Summary.UnusedVars)
 	fmt.Fprintf(w, "  unused consts: %d\n", report.Summary.UnusedConsts)
 	fmt.Fprintf(w, "  unused fields: %d\n", report.Summary.UnusedFields)
+	fmt.Fprintf(w, "  complexity findings: %d\n", report.Summary.ComplexityFindings)
+	fmt.Fprintf(w, "  duplicate groups: %d\n", report.Summary.DuplicateGroups)
+	fmt.Fprintf(w, "  duplicated lines: %d\n", report.Summary.DuplicatedLines)
 }
 
 func writeHumanFindings(w io.Writer, report *analyzer.Report) {
@@ -289,6 +304,10 @@ func writeHumanFinding(w io.Writer, finding analyzer.Finding) {
 		fmt.Fprintf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 	case analyzer.FindingUnusedField:
 		fmt.Fprintf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
+	case analyzer.FindingComplexity:
+		fmt.Fprintf(w, "  complex function %s.%s at %s:%d (cyclomatic %d, cognitive %d)\n", finding.Package, finding.Symbol, finding.File, finding.Line, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
+	case analyzer.FindingDuplicateCode:
+		fmt.Fprintf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
 	default:
 		fmt.Fprintf(w, "  %s at %s:%d\n", finding.Type, finding.File, finding.Line)
 	}

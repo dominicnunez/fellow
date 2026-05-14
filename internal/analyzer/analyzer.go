@@ -31,6 +31,8 @@ const (
 	FindingUnusedVar          = "unused-var"
 	FindingUnusedConst        = "unused-const"
 	FindingUnusedField        = "unused-field"
+	FindingComplexity         = "complexity"
+	FindingDuplicateCode      = "duplicate-code"
 
 	goModFileName  = "go.mod"
 	goFileSuffix   = ".go"
@@ -42,6 +44,8 @@ const (
 	generatedDoNotEditMarker = "DO NOT EDIT"
 	ruleOffSeverity          = "off"
 	fingerprintLength        = 16
+	defaultMaxCyclomatic     = 20
+	defaultMaxCognitive      = 15
 )
 
 type Options struct {
@@ -51,6 +55,8 @@ type Options struct {
 	CheckIndirect    bool
 	Rules            map[string]string
 	IgnorePatterns   []string
+	MaxCyclomatic    int
+	MaxCognitive     int
 }
 
 type Report struct {
@@ -78,6 +84,9 @@ type Summary struct {
 	UnusedVars           int `json:"unused_vars"`
 	UnusedConsts         int `json:"unused_consts"`
 	UnusedFields         int `json:"unused_fields"`
+	ComplexityFindings   int `json:"complexity_findings"`
+	DuplicateGroups      int `json:"duplicate_groups"`
+	DuplicatedLines      int `json:"duplicated_lines"`
 }
 
 type ModuleReport struct {
@@ -99,9 +108,23 @@ type Finding struct {
 	File          string      `json:"file"`
 	Line          int         `json:"line"`
 	Fingerprint   string      `json:"fingerprint"`
+	Metrics       Metrics     `json:"metrics,omitempty"`
+	Locations     []Location  `json:"locations,omitempty"`
+	Lines         int         `json:"lines,omitempty"`
 	Indirect      bool        `json:"indirect,omitempty"`
 	UsedIn        []ImportUse `json:"used_in,omitempty"`
 	UsedInModules []string    `json:"used_in_modules,omitempty"`
+}
+
+type Metrics struct {
+	Cyclomatic int `json:"cyclomatic,omitempty"`
+	Cognitive  int `json:"cognitive,omitempty"`
+}
+
+type Location struct {
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
 }
 
 type ImportUse struct {
@@ -320,6 +343,8 @@ func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Opt
 		}
 	}
 	findings = append(findings, deadCodeFindings(module)...)
+	findings = append(findings, healthFindings(module, opts)...)
+	findings = append(findings, duplicateFindings(module)...)
 	assignFingerprints(findings)
 	findings, suppressedByComment := applyCommentSuppressions(findings, module)
 	findings = filterFindings(findings, opts)
@@ -410,6 +435,7 @@ func findingFingerprint(f Finding) string {
 		f.Struct,
 		f.File,
 		fmt.Sprint(f.Line),
+		fmt.Sprint(f.Lines),
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])[:fingerprintLength]
@@ -569,6 +595,11 @@ func summarize(modules []ModuleReport) Summary {
 				summary.UnusedConsts++
 			case FindingUnusedField:
 				summary.UnusedFields++
+			case FindingComplexity:
+				summary.ComplexityFindings++
+			case FindingDuplicateCode:
+				summary.DuplicateGroups++
+				summary.DuplicatedLines += finding.Lines
 			}
 		}
 	}

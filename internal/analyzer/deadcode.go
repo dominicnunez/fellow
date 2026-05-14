@@ -202,10 +202,11 @@ func parseSourceFile(root string, path string, opts Options) (*sourceFile, error
 	}
 
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, data, 0)
+	file, err := parser.ParseFile(fset, path, data, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	suppressFile, suppressNextLine := parseCommentSuppressions(file, fset)
 
 	return &sourceFile{
 		absPath:          path,
@@ -214,34 +215,32 @@ func parseSourceFile(root string, path string, opts Options) (*sourceFile, error
 		fset:             fset,
 		test:             strings.HasSuffix(filepath.Base(path), testFileSuffix),
 		generated:        generated,
-		suppressFile:     parseFileSuppression(data),
-		suppressNextLine: parseNextLineSuppressions(data),
+		suppressFile:     suppressFile,
+		suppressNextLine: suppressNextLine,
 	}, nil
 }
 
-func parseFileSuppression(data []byte) bool {
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, suppressFileToken) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func parseNextLineSuppressions(data []byte) map[int]map[string]struct{} {
+func parseCommentSuppressions(file *ast.File, fset *token.FileSet) (bool, map[int]map[string]struct{}) {
 	suppressions := make(map[int]map[string]struct{})
-	for i, line := range strings.Split(string(data), "\n") {
-		idx := strings.Index(line, suppressNextLineToken)
-		if idx < 0 {
-			continue
-		}
+	suppressFile := false
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			text := comment.Text
+			if strings.Contains(text, suppressFileToken) {
+				suppressFile = true
+			}
+			idx := strings.Index(text, suppressNextLineToken)
+			if idx < 0 {
+				continue
+			}
 
-		rules := parseSuppressionRules(line[idx+len(suppressNextLineToken):])
-		suppressions[i+2] = rules
+			line := fset.Position(comment.Slash).Line
+			rules := parseSuppressionRules(text[idx+len(suppressNextLineToken):])
+			suppressions[line+1] = rules
+		}
 	}
 
-	return suppressions
+	return suppressFile, suppressions
 }
 
 func parseSuppressionRules(value string) map[string]struct{} {

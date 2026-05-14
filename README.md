@@ -14,6 +14,8 @@ It builds a repo-wide view of `go.mod` requirements, Go packages, and Go source 
 - Unused files whose declarations are all unused
 - Unused functions, methods, structs, and struct fields in reachable packages
 - Unused interfaces, type aliases, package-level vars, and consts
+- Complex functions and methods above cyclomatic or cognitive thresholds
+- Duplicate code windows across Go files
 
 Nested Go modules are analyzed independently, and imports from child modules are not attributed to parent modules.
 
@@ -34,6 +36,8 @@ Flags:
 - `--all-requires`: also check `// indirect` requirements for unused status
 - `--ignore-generated`: skip files with generated-code headers
 - `--summary`: print only counts in human output
+- `--max-cyclomatic`: maximum cyclomatic complexity before reporting
+- `--max-cognitive`: maximum cognitive complexity before reporting
 - `--fail-on-issues`: exit with status 1 when findings exist
 - `--ci`: equivalent to `--fail-on-issues`
 - `--baseline`: suppress findings recorded in a baseline file

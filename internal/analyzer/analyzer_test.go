@@ -594,6 +594,76 @@ func makeValue() int { return 1 }
 	assertNoSymbolFinding(t, report, FindingUnusedVar, "sideEffectVar")
 }
 
+func TestAnalyzeReportsComplexFunctions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() { complex(1) }
+
+func complex(v int) int {
+	if v > 0 {
+		if v > 10 {
+			return v
+		}
+	}
+	return 0
+}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, MaxCyclomatic: 1, MaxCognitive: 1})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.ComplexityFindings; got != 1 {
+		t.Fatalf("complexity findings = %d; want 1", got)
+	}
+	assertSymbolFinding(t, report, FindingComplexity, "complex")
+}
+
+func TestAnalyzeReportsDuplicateCode(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "a.go", `package main
+
+func main() { a(); b() }
+
+func a() {
+	total := 0
+	total += 1
+	total += 2
+	total += 3
+	total += 4
+	_ = total
+}
+`)
+	writeFile(t, root, "b.go", `package main
+
+func b() {
+	total := 0
+	total += 1
+	total += 2
+	total += 3
+	total += 4
+	_ = total
+}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.DuplicateGroups; got == 0 {
+		t.Fatalf("duplicate groups = %d; want at least 1", got)
+	}
+}
+
 func assertFinding(t *testing.T, report *Report, findingType string, value string) {
 	t.Helper()
 
