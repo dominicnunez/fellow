@@ -35,6 +35,8 @@ Flags:
 - `--summary`: print only counts in human output
 - `--fail-on-issues`: exit with status 1 when findings exist
 - `--ci`: equivalent to `--fail-on-issues`
+- `--baseline`: suppress findings recorded in a baseline file
+- `--save-baseline`: write current findings to a baseline file
 
 ## Notes
 
@@ -59,3 +61,21 @@ Dead-code detection is a closed-world static analysis of the scanned repo. When 
 ```
 
 Rule severities are `off`, `warn`, and `error`. The current CLI treats `warn` and `error` as reportable findings; `off` disables matching findings.
+
+## Suppressions And Baselines
+
+Use inline comments for intentional exceptions:
+
+```go
+// fellow-ignore-next-line unused-function
+func RuntimeHook() {}
+
+// fellow-ignore-file
+```
+
+Use baselines to adopt `fellow` incrementally:
+
+```bash
+go run ./cmd/fellow --save-baseline fellow-baseline.json
+go run ./cmd/fellow --baseline fellow-baseline.json --fail-on-issues
+```

@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -35,6 +37,7 @@ const (
 	generatedMarker          = "Code generated"
 	generatedDoNotEditMarker = "DO NOT EDIT"
 	ruleOffSeverity          = "off"
+	fingerprintLength        = 16
 )
 
 type Options struct {
@@ -56,6 +59,8 @@ type Report struct {
 type Summary struct {
 	Modules              int `json:"modules"`
 	Findings             int `json:"findings"`
+	SuppressedFindings   int `json:"suppressed_findings,omitempty"`
+	SuppressedByBaseline int `json:"suppressed_by_baseline,omitempty"`
 	UnusedDependencies   int `json:"unused_dependencies"`
 	UnlistedDependencies int `json:"unlisted_dependencies"`
 	TestOnlyDependencies int `json:"test_only_dependencies"`
@@ -85,6 +90,7 @@ type Finding struct {
 	Struct        string      `json:"struct,omitempty"`
 	File          string      `json:"file"`
 	Line          int         `json:"line"`
+	Fingerprint   string      `json:"fingerprint"`
 	Indirect      bool        `json:"indirect,omitempty"`
 	UsedIn        []ImportUse `json:"used_in,omitempty"`
 	UsedInModules []string    `json:"used_in_modules,omitempty"`
@@ -148,8 +154,11 @@ func Analyze(opts Options) (*Report, error) {
 		applyTypedInfo(absRoot, &modules[i], opts)
 	}
 
+	suppressedByComment := 0
 	for i := range modules {
-		modules[i].report.Findings = analyzeModule(absRoot, modules, i, opts)
+		findings, suppressed := analyzeModule(absRoot, modules, i, opts)
+		modules[i].report.Findings = findings
+		suppressedByComment += suppressed
 	}
 
 	report := &Report{
@@ -160,7 +169,8 @@ func Analyze(opts Options) (*Report, error) {
 	for _, module := range modules {
 		report.Modules = append(report.Modules, module.report)
 	}
-	report.Summary = summarize(report.Modules)
+	finalizeReport(report)
+	report.Summary.SuppressedFindings = suppressedByComment
 
 	return report, nil
 }
@@ -249,7 +259,7 @@ func parseModule(root string, goModPath string) (moduleState, error) {
 	return module, nil
 }
 
-func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Options) []Finding {
+func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Options) ([]Finding, int) {
 	module := modules[moduleIndex]
 	usedByRequire := make(map[string][]ImportUse, len(module.requires))
 	unlistedByImport := make(map[string][]ImportUse)
@@ -302,11 +312,99 @@ func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Opt
 		}
 	}
 	findings = append(findings, deadCodeFindings(module)...)
+	assignFingerprints(findings)
+	findings, suppressedByComment := applyCommentSuppressions(findings, module)
 	findings = filterFindings(findings, opts)
 
 	sortFindings(findings)
 
-	return findings
+	return findings, suppressedByComment
+}
+
+func finalizeReport(report *Report) {
+	for i := range report.Modules {
+		assignFingerprints(report.Modules[i].Findings)
+	}
+	report.Summary = summarize(report.Modules)
+}
+
+func assignFingerprints(findings []Finding) {
+	for i := range findings {
+		findings[i].Fingerprint = findingFingerprint(findings[i])
+	}
+}
+
+func applyCommentSuppressions(findings []Finding, module moduleState) ([]Finding, int) {
+	suppressions := moduleSuppressions(module)
+	if len(suppressions) == 0 {
+		return findings, 0
+	}
+
+	filtered := findings[:0]
+	suppressed := 0
+	for _, finding := range findings {
+		fileSuppression, ok := suppressions[finding.File]
+		if ok && fileSuppression.suppresses(finding) {
+			suppressed++
+			continue
+		}
+		filtered = append(filtered, finding)
+	}
+
+	return filtered, suppressed
+}
+
+type fileSuppression struct {
+	file bool
+	next map[int]map[string]struct{}
+}
+
+func (s fileSuppression) suppresses(finding Finding) bool {
+	if s.file {
+		return true
+	}
+	rules := s.next[finding.Line]
+	if len(rules) == 0 {
+		return false
+	}
+	if _, ok := rules[suppressAllRules]; ok {
+		return true
+	}
+	_, ok := rules[finding.Type]
+	return ok
+}
+
+func moduleSuppressions(module moduleState) map[string]fileSuppression {
+	suppressions := make(map[string]fileSuppression)
+	for _, pkg := range module.packages {
+		for _, source := range pkg.files {
+			if !source.suppressFile && len(source.suppressNextLine) == 0 {
+				continue
+			}
+			suppressions[source.relPath] = fileSuppression{
+				file: source.suppressFile,
+				next: source.suppressNextLine,
+			}
+		}
+	}
+
+	return suppressions
+}
+
+func findingFingerprint(f Finding) string {
+	parts := []string{
+		f.Type,
+		f.Package,
+		f.Module,
+		f.ImportPath,
+		f.Symbol,
+		f.Receiver,
+		f.Struct,
+		f.File,
+		fmt.Sprint(f.Line),
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])[:fingerprintLength]
 }
 
 func unlistedDependencyFindings(unlistedByImport map[string][]ImportUse) []Finding {

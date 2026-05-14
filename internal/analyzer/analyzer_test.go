@@ -470,6 +470,87 @@ func Dead() {}
 	}
 }
 
+func TestAnalyzeAppliesLineSuppressions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+
+// fellow-ignore-next-line unused-function
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.Findings; got != 0 {
+		t.Fatalf("findings = %d; want 0", got)
+	}
+	if got := report.Summary.SuppressedFindings; got != 1 {
+		t.Fatalf("suppressed findings = %d; want 1", got)
+	}
+}
+
+func TestAnalyzeAppliesFileSuppressions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `// fellow-ignore-file
+package main
+
+func main() {}
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.Findings; got != 0 {
+		t.Fatalf("findings = %d; want 0", got)
+	}
+}
+
+func TestBaselineSuppressesFindings(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	baselinePath := filepath.Join(root, "baseline.json")
+	if err := SaveBaseline(baselinePath, report); err != nil {
+		t.Fatalf("SaveBaseline() error = %v", err)
+	}
+	if err := ApplyBaseline(baselinePath, report); err != nil {
+		t.Fatalf("ApplyBaseline() error = %v", err)
+	}
+	if got := report.Summary.Findings; got != 0 {
+		t.Fatalf("findings = %d; want 0", got)
+	}
+	if got := report.Summary.SuppressedByBaseline; got != 1 {
+		t.Fatalf("suppressed by baseline = %d; want 1", got)
+	}
+}
+
 func assertFinding(t *testing.T, report *Report, findingType string, value string) {
 	t.Helper()
 

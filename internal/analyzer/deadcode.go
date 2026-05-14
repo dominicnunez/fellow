@@ -43,6 +43,10 @@ const (
 	unmarshalJSONCallName = "UnmarshalJSON"
 	scanCallName          = "Scan"
 	structScanCallName    = "StructScan"
+
+	suppressFileToken     = "fellow-ignore-file"
+	suppressNextLineToken = "fellow-ignore-next-line"
+	suppressAllRules      = "*"
 )
 
 type packageState struct {
@@ -72,6 +76,8 @@ type sourceFile struct {
 	fset                *token.FileSet
 	test                bool
 	generated           bool
+	suppressFile        bool
+	suppressNextLine    map[int]map[string]struct{}
 	hasSideEffectImport bool
 	hasSpecialFunction  bool
 	hasTopLevelValue    bool
@@ -198,13 +204,58 @@ func parseSourceFile(root string, path string, opts Options) (*sourceFile, error
 	}
 
 	return &sourceFile{
-		absPath:   path,
-		relPath:   relPath(root, path),
-		file:      file,
-		fset:      fset,
-		test:      strings.HasSuffix(filepath.Base(path), testFileSuffix),
-		generated: generated,
+		absPath:          path,
+		relPath:          relPath(root, path),
+		file:             file,
+		fset:             fset,
+		test:             strings.HasSuffix(filepath.Base(path), testFileSuffix),
+		generated:        generated,
+		suppressFile:     parseFileSuppression(data),
+		suppressNextLine: parseNextLineSuppressions(data),
 	}, nil
+}
+
+func parseFileSuppression(data []byte) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, suppressFileToken) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func parseNextLineSuppressions(data []byte) map[int]map[string]struct{} {
+	suppressions := make(map[int]map[string]struct{})
+	for i, line := range strings.Split(string(data), "\n") {
+		idx := strings.Index(line, suppressNextLineToken)
+		if idx < 0 {
+			continue
+		}
+
+		rules := parseSuppressionRules(line[idx+len(suppressNextLineToken):])
+		suppressions[i+2] = rules
+	}
+
+	return suppressions
+}
+
+func parseSuppressionRules(value string) map[string]struct{} {
+	rules := make(map[string]struct{})
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	}) {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		rules[field] = struct{}{}
+	}
+	if len(rules) == 0 {
+		rules[suppressAllRules] = struct{}{}
+	}
+
+	return rules
 }
 
 func packageForFile(packagesByKey map[string]*packageState, module moduleState, source *sourceFile) *packageState {

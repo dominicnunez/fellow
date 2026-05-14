@@ -33,6 +33,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	var root string
 	var configPath string
+	var baselinePath string
+	var saveBaselinePath string
 	var outputFormat string
 	var production bool
 	var allRequires bool
@@ -48,6 +50,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs.StringVar(&root, "r", ".", "project root to scan")
 	fs.StringVar(&configPath, "config", "", "config file path")
 	fs.StringVar(&configPath, "c", "", "config file path")
+	fs.StringVar(&baselinePath, "baseline", "", "suppress findings recorded in a baseline file")
+	fs.StringVar(&saveBaselinePath, "save-baseline", "", "write current findings to a baseline file")
 	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human or json")
 	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human or json")
 	fs.BoolVar(&production, "production", false, "exclude *_test.go files")
@@ -111,6 +115,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "analyze: %v\n", err)
 		return exitError
+	}
+	if saveBaselinePath != "" {
+		if err := analyzer.SaveBaseline(saveBaselinePath, report); err != nil {
+			fmt.Fprintf(stderr, "save baseline: %v\n", err)
+			return exitError
+		}
+	}
+	if baselinePath != "" {
+		if err := analyzer.ApplyBaseline(baselinePath, report); err != nil {
+			fmt.Fprintf(stderr, "baseline: %v\n", err)
+			return exitError
+		}
 	}
 
 	switch outputFormat {
@@ -200,6 +216,12 @@ func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
 	fmt.Fprintln(w, "Summary")
 	fmt.Fprintf(w, "  modules: %d\n", report.Summary.Modules)
 	fmt.Fprintf(w, "  findings: %d\n", report.Summary.Findings)
+	if report.Summary.SuppressedFindings > 0 {
+		fmt.Fprintf(w, "  suppressed findings: %d\n", report.Summary.SuppressedFindings)
+	}
+	if report.Summary.SuppressedByBaseline > 0 {
+		fmt.Fprintf(w, "  suppressed by baseline: %d\n", report.Summary.SuppressedByBaseline)
+	}
 	fmt.Fprintf(w, "  unused dependencies: %d\n", report.Summary.UnusedDependencies)
 	fmt.Fprintf(w, "  unlisted dependencies: %d\n", report.Summary.UnlistedDependencies)
 	fmt.Fprintf(w, "  test-only dependencies: %d\n", report.Summary.TestOnlyDependencies)
