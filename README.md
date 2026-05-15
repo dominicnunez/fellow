@@ -16,6 +16,8 @@ It builds a repo-wide view of `go.mod` requirements, Go packages, and Go source 
 - Unused interfaces, type aliases, package-level vars, and consts
 - Complex functions and methods above cyclomatic or cognitive thresholds
 - Duplicate code windows across Go files
+- Read-only `go mod tidy -diff` drift
+- Suspicious local `replace` directives that do not point at a discovered sibling module
 
 Nested Go modules are analyzed independently, and imports from child modules are not attributed to parent modules.
 
@@ -51,6 +53,8 @@ Flags:
 ## Notes
 
 Go has no direct equivalent to JavaScript `dependencies` and `devDependencies`, so `fellow` treats direct `require` entries as the primary dependency contract. Indirect requirements are ignored for unused dependency findings unless `--all-requires` is set.
+
+Module hygiene checks are read-only. `fellow` runs `go mod tidy -diff` and reports `tidy-drift` when Go would update `go.mod` or `go.sum`; it never runs mutating `go mod tidy`. Go `tool` directives and conventional `tools.go` imports count as intentional dependency usage.
 
 Dead-code detection is a closed-world static analysis of the scanned repo. When packages type-check, `fellow` uses `go/packages` and `go/types` object identity for exact function, method, type, and field liveness. Tagged struct fields are treated as externally used to avoid obvious false positives with JSON/database/reflection-based code.
 

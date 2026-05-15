@@ -80,6 +80,7 @@ type sourceFile struct {
 	fset                *token.FileSet
 	test                bool
 	generated           bool
+	tool                bool
 	suppressFile        bool
 	suppressNextLine    map[int]map[string]struct{}
 	hasSideEffectImport bool
@@ -150,7 +151,7 @@ func scanModulePackages(root string, module moduleState, moduleDirs map[string]s
 		if !opts.IncludeTests && strings.HasSuffix(d.Name(), testFileSuffix) {
 			return nil
 		}
-		if !matchesBuildContext(path, opts.BuildTags) {
+		if !matchesBuildContext(path, opts.BuildTags) && !isToolSourceFile(path) {
 			return nil
 		}
 
@@ -203,6 +204,10 @@ func matchesBuildContext(path string, buildTags []string) bool {
 	return err == nil && matched
 }
 
+func isToolSourceFile(path string) bool {
+	return filepath.Base(path) == "tools.go"
+}
+
 func parseSourceFile(root string, path string, opts Options) (*sourceFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -228,6 +233,7 @@ func parseSourceFile(root string, path string, opts Options) (*sourceFile, error
 		fset:             fset,
 		test:             strings.HasSuffix(filepath.Base(path), testFileSuffix),
 		generated:        generated,
+		tool:             isToolSourceFile(path),
 		suppressFile:     suppressFile,
 		suppressNextLine: suppressNextLine,
 	}, nil
@@ -385,6 +391,7 @@ func collectImports(pkg *packageState, source *sourceFile, packageNames map[stri
 			Line:       line,
 			Test:       source.test,
 			Generated:  source.generated,
+			Tool:       source.tool,
 		}
 		pkg.imports = append(pkg.imports, use)
 

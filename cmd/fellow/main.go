@@ -69,6 +69,9 @@ var humanFindingWriters = map[string]humanFindingWriter{
 	analyzer.FindingUnusedField:        writeUnusedFieldFinding,
 	analyzer.FindingComplexity:         writeComplexityFinding,
 	analyzer.FindingDuplicateCode:      writeDuplicateCodeFinding,
+	analyzer.FindingTidyDrift:          writeTidyDriftFinding,
+	analyzer.FindingLocalReplace:       writeLocalReplaceFinding,
+	analyzer.FindingToolDependency:     writeToolDependencyFinding,
 }
 
 func main() {
@@ -185,17 +188,18 @@ func newFlagSet(opts *cliOptions, stderr io.Writer) *flag.FlagSet {
 
 func analyzerOptions(opts cliOptions, cfg settings.Config) analyzer.Options {
 	return analyzer.Options{
-		Root:              opts.root,
-		IncludeTests:      !opts.production,
-		IncludeGenerated:  !opts.ignoreGenerated,
-		CheckIndirect:     opts.allRequires,
-		Rules:             cfg.Rules,
-		IgnorePatterns:    cfg.IgnorePatterns,
-		IgnoreFindings:    analyzerFindingMatchers(cfg.IgnoreFindings),
-		WorkspacePatterns: splitCSV(opts.workspaceCSV),
-		BuildTags:         splitCSV(opts.tagsCSV),
-		MaxCyclomatic:     opts.maxCyclomatic,
-		MaxCognitive:      opts.maxCognitive,
+		Root:               opts.root,
+		IncludeTests:       !opts.production,
+		IncludeGenerated:   !opts.ignoreGenerated,
+		CheckIndirect:      opts.allRequires,
+		Rules:              cfg.Rules,
+		IgnorePatterns:     cfg.IgnorePatterns,
+		IgnoreFindings:     analyzerFindingMatchers(cfg.IgnoreFindings),
+		WorkspacePatterns:  splitCSV(opts.workspaceCSV),
+		BuildTags:          splitCSV(opts.tagsCSV),
+		MaxCyclomatic:      opts.maxCyclomatic,
+		MaxCognitive:       opts.maxCognitive,
+		CheckModuleHygiene: true,
 	}
 }
 
@@ -718,6 +722,18 @@ func writeComplexityFinding(w io.Writer, finding analyzer.Finding) {
 
 func writeDuplicateCodeFinding(w io.Writer, finding analyzer.Finding) {
 	appendf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
+}
+
+func writeTidyDriftFinding(w io.Writer, finding analyzer.Finding) {
+	appendf(w, "  go mod tidy drift at %s:%d\n", finding.File, finding.Line)
+}
+
+func writeLocalReplaceFinding(w io.Writer, finding analyzer.Finding) {
+	appendf(w, "  local replace %s => %s at %s:%d\n", finding.Module, finding.ImportPath, finding.File, finding.Line)
+}
+
+func writeToolDependencyFinding(w io.Writer, finding analyzer.Finding) {
+	appendf(w, "  unresolved tool dependency %s at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
 }
 
 func writeDefaultFinding(w io.Writer, finding analyzer.Finding) {

@@ -33,6 +33,9 @@ const (
 	FindingUnusedField        = "unused-field"
 	FindingComplexity         = "complexity"
 	FindingDuplicateCode      = "duplicate-code"
+	FindingTidyDrift          = "tidy-drift"
+	FindingLocalReplace       = "local-replace"
+	FindingToolDependency     = "tool-dependency"
 
 	goModFileName  = "go.mod"
 	goFileSuffix   = ".go"
@@ -47,17 +50,18 @@ const (
 )
 
 type Options struct {
-	Root              string
-	IncludeTests      bool
-	IncludeGenerated  bool
-	CheckIndirect     bool
-	Rules             map[string]string
-	IgnorePatterns    []string
-	IgnoreFindings    []FindingMatcher
-	WorkspacePatterns []string
-	BuildTags         []string
-	MaxCyclomatic     int
-	MaxCognitive      int
+	Root               string
+	IncludeTests       bool
+	IncludeGenerated   bool
+	CheckIndirect      bool
+	Rules              map[string]string
+	IgnorePatterns     []string
+	IgnoreFindings     []FindingMatcher
+	WorkspacePatterns  []string
+	BuildTags          []string
+	MaxCyclomatic      int
+	MaxCognitive       int
+	CheckModuleHygiene bool
 }
 
 type FindingMatcher struct {
@@ -155,6 +159,7 @@ type ImportUse struct {
 	Line       int    `json:"line"`
 	Test       bool   `json:"test,omitempty"`
 	Generated  bool   `json:"generated,omitempty"`
+	Tool       bool   `json:"tool,omitempty"`
 }
 
 type Require struct {
@@ -214,7 +219,10 @@ func Analyze(opts Options) (*Report, error) {
 
 	suppressedByComment := 0
 	for i := range modules {
-		findings, suppressed := analyzeModule(absRoot, modules, i, opts)
+		findings, suppressed, err := analyzeModule(absRoot, modules, i, opts)
+		if err != nil {
+			return nil, err
+		}
 		modules[i].report.Findings = findings
 		suppressedByComment += suppressed
 	}
@@ -346,7 +354,7 @@ func parseModule(root string, goModPath string) (moduleState, error) {
 	return module, nil
 }
 
-func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Options) ([]Finding, int) {
+func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Options) ([]Finding, int, error) {
 	module := modules[moduleIndex]
 	usedByRequire := make(map[string][]ImportUse, len(module.requires))
 	unlistedByImport := make(map[string][]ImportUse)
@@ -358,14 +366,30 @@ func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Opt
 
 		req, ok := longestMatchingRequire(use.ImportPath, module.requires)
 		if !ok {
+			if use.Tool {
+				continue
+			}
 			unlistedByImport[use.ImportPath] = append(unlistedByImport[use.ImportPath], use)
 			continue
 		}
 		usedByRequire[req.Module] = append(usedByRequire[req.Module], use)
 	}
+	for _, use := range toolDependencyUses(root, module) {
+		req, ok := longestMatchingRequire(use.ImportPath, module.requires)
+		if ok {
+			usedByRequire[req.Module] = append(usedByRequire[req.Module], use)
+		}
+	}
 
 	findings := make([]Finding, 0)
 	findings = append(findings, unlistedDependencyFindings(unlistedByImport)...)
+	if opts.CheckModuleHygiene {
+		hygieneFindings, err := moduleHygieneFindings(root, modules, module)
+		if err != nil {
+			return nil, 0, err
+		}
+		findings = append(findings, hygieneFindings...)
+	}
 
 	for _, req := range module.requires {
 		if req.Indirect && !opts.CheckIndirect {
@@ -407,7 +431,7 @@ func analyzeModule(root string, modules []moduleState, moduleIndex int, opts Opt
 
 	sortFindings(findings)
 
-	return findings, suppressedByComment
+	return findings, suppressedByComment, nil
 }
 
 func finalizeReport(report *Report) {

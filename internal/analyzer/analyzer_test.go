@@ -1053,6 +1053,128 @@ func three(value int) int { return value }
 	}
 }
 
+func TestAnalyzeReportsTidyDriftReadOnly(t *testing.T) {
+	root := t.TempDir()
+	goMod := `module example.com/app
+
+go 1.25
+
+require example.com/unused v0.0.0
+`
+	writeFile(t, root, "go.mod", goMod)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, CheckModuleHygiene: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	assertFinding(t, report, FindingTidyDrift, "")
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(data) != goMod {
+		t.Fatalf("go.mod was mutated; got %q", string(data))
+	}
+}
+
+func TestAnalyzeReportsSuspiciousLocalReplace(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+
+replace example.com/lib => ../scratch/lib
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, CheckModuleHygiene: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	assertFinding(t, report, FindingLocalReplace, "example.com/lib")
+}
+
+func TestAnalyzeAllowsKnownSiblingLocalReplace(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "app/go.mod", `module example.com/app
+
+go 1.25
+
+replace example.com/lib => ../lib
+`)
+	writeFile(t, root, "app/main.go", `package main
+
+func main() {}
+`)
+	writeFile(t, root, "lib/go.mod", `module example.com/lib
+
+go 1.25
+`)
+	writeFile(t, root, "lib/lib.go", `package lib
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true, CheckModuleHygiene: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	assertNoFinding(t, report, FindingLocalReplace, "example.com/lib")
+}
+
+func TestAnalyzeTreatsGoToolDirectiveAsUsedDependency(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+
+tool golang.org/x/tools/cmd/stringer
+
+require golang.org/x/tools v0.44.0
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	assertNoFinding(t, report, FindingUnusedDependency, "golang.org/x/tools")
+}
+
+func TestAnalyzeTreatsToolsGoImportAsUsedDependency(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+
+require golang.org/x/tools v0.44.0
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+	writeFile(t, root, "tools.go", `//go:build tools
+
+package main
+
+import _ "golang.org/x/tools/cmd/stringer"
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	assertNoFinding(t, report, FindingUnusedDependency, "golang.org/x/tools")
+}
+
 func assertFinding(t *testing.T, report *Report, findingType string, value string) {
 	t.Helper()
 
@@ -1061,6 +1183,9 @@ func assertFinding(t *testing.T, report *Report, findingType string, value strin
 			if finding.Type != findingType {
 				continue
 			}
+			if value == "" {
+				return
+			}
 			if finding.Module == value || finding.ImportPath == value {
 				return
 			}
@@ -1068,6 +1193,21 @@ func assertFinding(t *testing.T, report *Report, findingType string, value strin
 	}
 
 	t.Fatalf("finding %s %q not found in %#v", findingType, value, report.Modules)
+}
+
+func assertNoFinding(t *testing.T, report *Report, findingType string, value string) {
+	t.Helper()
+
+	for _, module := range report.Modules {
+		for _, finding := range module.Findings {
+			if finding.Type != findingType {
+				continue
+			}
+			if value == "" || finding.Module == value || finding.ImportPath == value {
+				t.Fatalf("unexpected finding %s %q in %#v", findingType, value, report.Modules)
+			}
+		}
+	}
 }
 
 func assertSymbolFinding(t *testing.T, report *Report, findingType string, symbol string) {
