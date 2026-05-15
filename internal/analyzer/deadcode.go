@@ -923,15 +923,24 @@ func declarationBlockedByDeadStruct(packageIndex int, decl declaration, deadStru
 }
 
 func reachablePackages(module moduleState, packageByImport map[string]int) map[int]bool {
-	importers := make(map[int]int, len(module.packages))
-	for _, pkg := range module.packages {
+	importers := packageImportCounts(module.packages, packageByImport)
+	roots := rootPackageIndexes(module, importers)
+	return walkReachablePackages(module.packages, packageByImport, roots)
+}
+
+func packageImportCounts(packages []packageState, packageByImport map[string]int) map[int]int {
+	importers := make(map[int]int, len(packages))
+	for _, pkg := range packages {
 		for importPath := range pkg.internalImports {
 			if importedIndex, ok := packageByImport[importPath]; ok {
 				importers[importedIndex]++
 			}
 		}
 	}
+	return importers
+}
 
+func rootPackageIndexes(module moduleState, importers map[int]int) map[int]struct{} {
 	roots := make(map[int]struct{})
 	for i, pkg := range module.packages {
 		if pkg.isExternalTest || pkg.name == mainPackageName || pkg.realImportPath == module.report.ModulePath {
@@ -948,8 +957,11 @@ func reachablePackages(module moduleState, packageByImport map[string]int) map[i
 			}
 		}
 	}
+	return roots
+}
 
-	reachable := make(map[int]bool, len(module.packages))
+func walkReachablePackages(packages []packageState, packageByImport map[string]int, roots map[int]struct{}) map[int]bool {
+	reachable := make(map[int]bool, len(packages))
 	queue := make([]int, 0, len(roots))
 	for root := range roots {
 		reachable[root] = true
@@ -959,7 +971,7 @@ func reachablePackages(module moduleState, packageByImport map[string]int) map[i
 	for len(queue) > 0 {
 		pkgIndex := queue[0]
 		queue = queue[1:]
-		for importPath := range module.packages[pkgIndex].internalImports {
+		for importPath := range packages[pkgIndex].internalImports {
 			importedIndex, ok := packageByImport[importPath]
 			if !ok || reachable[importedIndex] {
 				continue
