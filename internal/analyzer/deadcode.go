@@ -856,36 +856,33 @@ func unusedDeclarationFindings(packages []packageState, reachable map[int]bool, 
 			continue
 		}
 
-		for _, decl := range pkg.declarations {
-			if decl.Kind == declarationField {
-				continue
-			}
-			if declarationBlockedByDeadStruct(i, decl, deadStructs) {
-				continue
-			}
-			if declarationUsed(pkg, decl, usage, reflectiveStructs[i]) {
-				fileHasLiveDeclaration[decl.File] = true
-				continue
-			}
-			findings = append(findings, declarationFinding(pkg, decl))
-		}
-
-		for _, decl := range pkg.declarations {
-			if decl.Kind != declarationField || decl.HasTag {
-				continue
-			}
-			if declarationBlockedByDeadStruct(i, decl, deadStructs) {
-				continue
-			}
-			if declarationUsed(pkg, decl, usage, reflectiveStructs[i]) {
-				fileHasLiveDeclaration[decl.File] = true
-				continue
-			}
-			findings = append(findings, declarationFinding(pkg, decl))
-		}
+		findings = append(findings, unusedDeclarationsInPackage(pkg, i, usage, reflectiveStructs[i], deadStructs, fileHasLiveDeclaration)...)
 	}
 
 	return findings
+}
+
+func unusedDeclarationsInPackage(pkg packageState, packageIndex int, usage moduleUsage, reflectiveStructs map[string]struct{}, deadStructs map[string]bool, fileHasLiveDeclaration map[string]bool) []Finding {
+	findings := make([]Finding, 0)
+	for _, decl := range pkg.declarations {
+		if !shouldCheckDeclaration(decl) {
+			continue
+		}
+		if declarationBlockedByDeadStruct(packageIndex, decl, deadStructs) {
+			continue
+		}
+		if declarationUsed(pkg, decl, usage, reflectiveStructs) {
+			fileHasLiveDeclaration[decl.File] = true
+			continue
+		}
+		findings = append(findings, declarationFinding(pkg, decl))
+	}
+
+	return findings
+}
+
+func shouldCheckDeclaration(decl declaration) bool {
+	return decl.Kind != declarationField || !decl.HasTag
 }
 
 func unusedFileFindings(packages []packageState, reachable map[int]bool, fileHasLiveDeclaration map[string]bool) []Finding {
