@@ -11,16 +11,6 @@
     {
       "type": "complexity",
       "file": "internal/analyzer/deadcode.go",
-      "symbol": "scanModulePackages"
-    },
-    {
-      "type": "complexity",
-      "file": "internal/analyzer/deadcode.go",
-      "symbol": "collectUses"
-    },
-    {
-      "type": "complexity",
-      "file": "internal/analyzer/deadcode.go",
       "symbol": "collectModuleUsage"
     },
     {
