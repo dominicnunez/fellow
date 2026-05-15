@@ -1,6 +1,9 @@
 package analyzer
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -842,6 +845,83 @@ func complex(v int) int {
 	assertSymbolFinding(t, report, FindingComplexity, "complex")
 }
 
+func TestFunctionComplexityAlignsCognitiveScoringWithGocognitRules(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		cognitive int
+	}{
+		{
+			name: "else if is not nested",
+			body: `if a {
+	return
+} else if b {
+	return
+}`,
+			cognitive: 2,
+		},
+		{
+			name: "else block counts separately",
+			body: `if a {
+	return
+} else {
+	return
+}`,
+			cognitive: 2,
+		},
+		{
+			name:      "logical operator runs count transitions",
+			body:      `if a && b && c || d || e && f { return }`,
+			cognitive: 4,
+		},
+		{
+			name: "switch counts once",
+			body: `switch a {
+case 1:
+	return
+case 2:
+	return
+default:
+	return
+}`,
+			cognitive: 1,
+		},
+		{
+			name: "function literal increases nesting",
+			body: `fn := func() {
+	if a {
+		return
+	}
+}
+_ = fn`,
+			cognitive: 2,
+		},
+		{
+			name:      "direct recursion counts calls",
+			body:      `if a { return sample() }; return sample()`,
+			cognitive: 3,
+		},
+		{
+			name: "labeled branches count",
+			body: `loop:
+for {
+	break loop
+}`,
+			cognitive: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fn := parseFunctionForComplexityTest(t, "func sample() int {\n"+tt.body+"\nreturn 0\n}")
+			_, cognitive := functionComplexity(fn)
+			if cognitive != tt.cognitive {
+				t.Fatalf("cognitive complexity = %d; want %d", cognitive, tt.cognitive)
+			}
+		})
+	}
+}
+
 func TestAnalyzeReportsDuplicateCode(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", `module example.com/app
@@ -928,6 +1008,24 @@ func assertNoSymbolFinding(t *testing.T, report *Report, findingType string, sym
 			}
 		}
 	}
+}
+
+func parseFunctionForComplexityTest(t *testing.T, source string) *ast.FuncDecl {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "complexity.go", "package main\n\n"+source, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok {
+			return fn
+		}
+	}
+
+	t.Fatal("parsed source did not contain a function")
+	return nil
 }
 
 func writeFile(t *testing.T, root string, name string, content string) {

@@ -663,42 +663,51 @@ func collectTypedVariables(source *sourceFile) map[string][]typedVariable {
 		case nil:
 			return true
 		case *ast.ValueSpec:
-			typeName := exprTypeName(n.Type)
-			if typeName == "" {
-				return true
-			}
-			for _, name := range n.Names {
-				typedVars[name.Name] = append(typedVars[name.Name], typedVariable{
-					TypeName: typeName,
-					Line:     source.fset.Position(name.Pos()).Line,
-				})
-			}
+			collectValueSpecTypedVariables(source, n, typedVars)
 		case *ast.AssignStmt:
-			for i, rhs := range n.Rhs {
-				if i >= len(n.Lhs) {
-					continue
-				}
-				ident, ok := n.Lhs[i].(*ast.Ident)
-				if !ok {
-					continue
-				}
-				literal, ok := rhs.(*ast.CompositeLit)
-				if !ok {
-					continue
-				}
-				if typeName := exprTypeName(literal.Type); typeName != "" {
-					typedVars[ident.Name] = append(typedVars[ident.Name], typedVariable{
-						TypeName: typeName,
-						Line:     source.fset.Position(ident.Pos()).Line,
-					})
-				}
-			}
+			collectAssignmentTypedVariables(source, n, typedVars)
 		}
 
 		return true
 	})
 
 	return typedVars
+}
+
+func collectValueSpecTypedVariables(source *sourceFile, spec *ast.ValueSpec, typedVars map[string][]typedVariable) {
+	typeName := exprTypeName(spec.Type)
+	if typeName == "" {
+		return
+	}
+	for _, name := range spec.Names {
+		addTypedVariable(source, typedVars, name.Name, typeName, name.Pos())
+	}
+}
+
+func collectAssignmentTypedVariables(source *sourceFile, stmt *ast.AssignStmt, typedVars map[string][]typedVariable) {
+	for i, rhs := range stmt.Rhs {
+		if i >= len(stmt.Lhs) {
+			continue
+		}
+		ident, ok := stmt.Lhs[i].(*ast.Ident)
+		if !ok {
+			continue
+		}
+		literal, ok := rhs.(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		if typeName := exprTypeName(literal.Type); typeName != "" {
+			addTypedVariable(source, typedVars, ident.Name, typeName, ident.Pos())
+		}
+	}
+}
+
+func addTypedVariable(source *sourceFile, typedVars map[string][]typedVariable, name string, typeName string, pos token.Pos) {
+	typedVars[name] = append(typedVars[name], typedVariable{
+		TypeName: typeName,
+		Line:     source.fset.Position(pos).Line,
+	})
 }
 
 func isReflectiveCall(expr ast.Expr) bool {
