@@ -29,56 +29,131 @@ const (
 	formatAnnotations       = "annotations"
 )
 
+type cliOptions struct {
+	command          string
+	root             string
+	configPath       string
+	baselinePath     string
+	saveBaselinePath string
+	coveragePath     string
+	baseRef          string
+	workspaceCSV     string
+	tagsCSV          string
+	outputFormat     string
+	maxCyclomatic    int
+	maxCognitive     int
+	production       bool
+	allRequires      bool
+	ignoreGenerated  bool
+	summaryOnly      bool
+	failOnIssues     bool
+	ci               bool
+	showVersion      bool
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	opts, cfg, code, ok := parseRunOptions(args, stdout, stderr)
+	if !ok {
+		return code
+	}
+
+	report, err := analyzer.Analyze(analyzerOptions(opts, cfg))
+	if err != nil {
+		fmt.Fprintf(stderr, "analyze: %v\n", err)
+		return exitError
+	}
+	if code := postProcessReport(opts, report, stderr); code != exitOK {
+		return code
+	}
+	if code := writeOutput(stdout, stderr, report, opts); code != exitOK {
+		return code
+	}
+
+	if (opts.failOnIssues || opts.ci) && report.Summary.Findings > 0 {
+		return exitIssues
+	}
+
+	return exitOK
+}
+
+func parseRunOptions(args []string, stdout io.Writer, stderr io.Writer) (cliOptions, settings.Config, int, bool) {
 	command, args := splitCommand(args)
+	opts := defaultCLIOptions(command)
+	fs := newFlagSet(&opts, stderr)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return opts, settings.Config{}, exitOK, false
+		}
+		return opts, settings.Config{}, exitError, false
+	}
+	if opts.showVersion {
+		fmt.Fprintf(stdout, "%s %s\n", appName, version)
+		return opts, settings.Config{}, exitOK, false
+	}
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "expected at most one root argument, got %d\n", fs.NArg())
+		return opts, settings.Config{}, exitError, false
+	}
 
-	var root string
-	var configPath string
-	var baselinePath string
-	var saveBaselinePath string
-	var coveragePath string
-	var baseRef string
-	var workspaceCSV string
-	var tagsCSV string
-	var outputFormat string
-	var maxCyclomatic int
-	var maxCognitive int
-	var production bool
-	var allRequires bool
-	var ignoreGenerated bool
-	var summaryOnly bool
-	var failOnIssues bool
-	var ci bool
-	var showVersion bool
+	seenFlags := visitedFlags(fs)
+	if fs.NArg() == 1 {
+		opts.root = fs.Arg(0)
+		seenFlags["root"] = true
+	}
+	cfg, loaded, err := loadConfig(opts.root, opts.configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "config: %v\n", err)
+		return opts, settings.Config{}, exitError, false
+	}
+	if loaded {
+		applyConfig(&opts, cfg, seenFlags)
+	}
+	if !supportedFormat(opts.outputFormat) {
+		fmt.Fprintf(stderr, "unsupported format %q\n", opts.outputFormat)
+		return opts, settings.Config{}, exitError, false
+	}
 
+	return opts, cfg, exitOK, true
+}
+
+func defaultCLIOptions(command string) cliOptions {
+	return cliOptions{
+		command:      command,
+		root:         ".",
+		baseRef:      "HEAD~1",
+		outputFormat: formatHuman,
+	}
+}
+
+func newFlagSet(opts *cliOptions, stderr io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet(appName, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&root, "root", ".", "project root to scan")
-	fs.StringVar(&root, "r", ".", "project root to scan")
-	fs.StringVar(&configPath, "config", "", "config file path")
-	fs.StringVar(&configPath, "c", "", "config file path")
-	fs.StringVar(&baselinePath, "baseline", "", "suppress findings recorded in a baseline file")
-	fs.StringVar(&saveBaselinePath, "save-baseline", "", "write current findings to a baseline file")
-	fs.StringVar(&coveragePath, "coverage", "", "Go coverage profile to annotate findings")
-	fs.StringVar(&baseRef, "base", "HEAD~1", "base ref for audit mode")
-	fs.StringVar(&baseRef, "changed-since", "HEAD~1", "base ref for audit mode")
-	fs.StringVar(&workspaceCSV, "workspace", "", "comma-separated module path or directory filters")
-	fs.StringVar(&tagsCSV, "tags", "", "comma-separated Go build tags")
-	fs.StringVar(&outputFormat, "format", formatHuman, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
-	fs.StringVar(&outputFormat, "f", formatHuman, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
-	fs.IntVar(&maxCyclomatic, "max-cyclomatic", 0, "maximum cyclomatic complexity before reporting")
-	fs.IntVar(&maxCognitive, "max-cognitive", 0, "maximum cognitive complexity before reporting")
-	fs.BoolVar(&production, "production", false, "exclude *_test.go files")
-	fs.BoolVar(&allRequires, "all-requires", false, "also check indirect requirements for unused status")
-	fs.BoolVar(&ignoreGenerated, "ignore-generated", false, "skip generated Go files")
-	fs.BoolVar(&summaryOnly, "summary", false, "only print summary counts in human output")
-	fs.BoolVar(&failOnIssues, "fail-on-issues", false, "exit 1 when findings exist")
-	fs.BoolVar(&ci, "ci", false, "enable CI behavior: fail on findings")
-	fs.BoolVar(&showVersion, "version", false, "print version and exit")
+	fs.StringVar(&opts.root, "root", opts.root, "project root to scan")
+	fs.StringVar(&opts.root, "r", opts.root, "project root to scan")
+	fs.StringVar(&opts.configPath, "config", "", "config file path")
+	fs.StringVar(&opts.configPath, "c", "", "config file path")
+	fs.StringVar(&opts.baselinePath, "baseline", "", "suppress findings recorded in a baseline file")
+	fs.StringVar(&opts.saveBaselinePath, "save-baseline", "", "write current findings to a baseline file")
+	fs.StringVar(&opts.coveragePath, "coverage", "", "Go coverage profile to annotate findings")
+	fs.StringVar(&opts.baseRef, "base", opts.baseRef, "base ref for audit mode")
+	fs.StringVar(&opts.baseRef, "changed-since", opts.baseRef, "base ref for audit mode")
+	fs.StringVar(&opts.workspaceCSV, "workspace", "", "comma-separated module path or directory filters")
+	fs.StringVar(&opts.tagsCSV, "tags", "", "comma-separated Go build tags")
+	fs.StringVar(&opts.outputFormat, "format", opts.outputFormat, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
+	fs.StringVar(&opts.outputFormat, "f", opts.outputFormat, "output format: human, json, sarif, codeclimate, gitlab-codequality, or annotations")
+	fs.IntVar(&opts.maxCyclomatic, "max-cyclomatic", 0, "maximum cyclomatic complexity before reporting")
+	fs.IntVar(&opts.maxCognitive, "max-cognitive", 0, "maximum cognitive complexity before reporting")
+	fs.BoolVar(&opts.production, "production", false, "exclude *_test.go files")
+	fs.BoolVar(&opts.allRequires, "all-requires", false, "also check indirect requirements for unused status")
+	fs.BoolVar(&opts.ignoreGenerated, "ignore-generated", false, "skip generated Go files")
+	fs.BoolVar(&opts.summaryOnly, "summary", false, "only print summary counts in human output")
+	fs.BoolVar(&opts.failOnIssues, "fail-on-issues", false, "exit 1 when findings exist")
+	fs.BoolVar(&opts.ci, "ci", false, "enable CI behavior: fail on findings")
+	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "Usage: %s [dead-code|audit] [flags] [root]\n\n", appName)
 		fmt.Fprintln(stderr, "Analyze Go modules for dead code and dependency drift.")
@@ -86,86 +161,45 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		fs.PrintDefaults()
 	}
 
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return exitOK
-		}
-		return exitError
-	}
+	return fs
+}
 
-	if showVersion {
-		fmt.Fprintf(stdout, "%s %s\n", appName, version)
-		return exitOK
-	}
-
-	if fs.NArg() > 1 {
-		fmt.Fprintf(stderr, "expected at most one root argument, got %d\n", fs.NArg())
-		return exitError
-	}
-	seenFlags := visitedFlags(fs)
-	if fs.NArg() == 1 {
-		root = fs.Arg(0)
-		seenFlags["root"] = true
-	}
-
-	cfg, loaded, err := loadConfig(root, configPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "config: %v\n", err)
-		return exitError
-	}
-	if loaded {
-		applyConfig(&root, &outputFormat, &maxCyclomatic, &maxCognitive, &production, &allRequires, &ignoreGenerated, &summaryOnly, &failOnIssues, cfg, seenFlags)
-		if workspaceCSV == "" && len(cfg.Workspace) > 0 {
-			workspaceCSV = strings.Join(cfg.Workspace, ",")
-		}
-		if tagsCSV == "" && len(cfg.BuildTags) > 0 {
-			tagsCSV = strings.Join(cfg.BuildTags, ",")
-		}
-	}
-
-	if !supportedFormat(outputFormat) {
-		fmt.Fprintf(stderr, "unsupported format %q\n", outputFormat)
-		return exitError
-	}
-	workspacePatterns := splitCSV(workspaceCSV)
-	buildTags := splitCSV(tagsCSV)
-
-	report, err := analyzer.Analyze(analyzer.Options{
-		Root:              root,
-		IncludeTests:      !production,
-		IncludeGenerated:  !ignoreGenerated,
-		CheckIndirect:     allRequires,
+func analyzerOptions(opts cliOptions, cfg settings.Config) analyzer.Options {
+	return analyzer.Options{
+		Root:              opts.root,
+		IncludeTests:      !opts.production,
+		IncludeGenerated:  !opts.ignoreGenerated,
+		CheckIndirect:     opts.allRequires,
 		Rules:             cfg.Rules,
 		IgnorePatterns:    cfg.IgnorePatterns,
-		WorkspacePatterns: workspacePatterns,
-		BuildTags:         buildTags,
-		MaxCyclomatic:     maxCyclomatic,
-		MaxCognitive:      maxCognitive,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "analyze: %v\n", err)
-		return exitError
+		WorkspacePatterns: splitCSV(opts.workspaceCSV),
+		BuildTags:         splitCSV(opts.tagsCSV),
+		MaxCyclomatic:     opts.maxCyclomatic,
+		MaxCognitive:      opts.maxCognitive,
 	}
-	if saveBaselinePath != "" {
-		if err := analyzer.SaveBaseline(saveBaselinePath, report); err != nil {
+}
+
+func postProcessReport(opts cliOptions, report *analyzer.Report, stderr io.Writer) int {
+	if opts.saveBaselinePath != "" {
+		if err := analyzer.SaveBaseline(opts.saveBaselinePath, report); err != nil {
 			fmt.Fprintf(stderr, "save baseline: %v\n", err)
 			return exitError
 		}
 	}
-	if baselinePath != "" {
-		if err := analyzer.ApplyBaseline(baselinePath, report); err != nil {
+	if opts.baselinePath != "" {
+		if err := analyzer.ApplyBaseline(opts.baselinePath, report); err != nil {
 			fmt.Fprintf(stderr, "baseline: %v\n", err)
 			return exitError
 		}
 	}
-	if coveragePath != "" {
-		if err := analyzer.ApplyCoverage(coveragePath, report); err != nil {
+	if opts.coveragePath != "" {
+		if err := analyzer.ApplyCoverage(opts.coveragePath, report); err != nil {
 			fmt.Fprintf(stderr, "coverage: %v\n", err)
 			return exitError
 		}
 	}
-	if command == "audit" {
-		changed, err := changedFiles(root, baseRef)
+	if opts.command == "audit" {
+		changed, err := changedFiles(opts.root, opts.baseRef)
 		if err != nil {
 			fmt.Fprintf(stderr, "audit: %v\n", err)
 			return exitError
@@ -173,14 +207,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		filterReportFiles(report, changed)
 	}
 
-	switch outputFormat {
+	return exitOK
+}
+
+func writeOutput(stdout io.Writer, stderr io.Writer, report *analyzer.Report, opts cliOptions) int {
+	switch opts.outputFormat {
 	case formatJSON:
 		if err := writeJSON(stdout, report); err != nil {
 			fmt.Fprintf(stderr, "write json: %v\n", err)
 			return exitError
 		}
 	case formatHuman:
-		writeHuman(stdout, report, summaryOnly)
+		writeHuman(stdout, report, opts.summaryOnly)
 	case formatSARIF:
 		if err := writeSARIF(stdout, report); err != nil {
 			fmt.Fprintf(stderr, "write sarif: %v\n", err)
@@ -193,10 +231,6 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 	case formatAnnotations:
 		writeAnnotations(stdout, report)
-	}
-
-	if (failOnIssues || ci) && report.Summary.Findings > 0 {
-		return exitIssues
 	}
 
 	return exitOK
@@ -219,33 +253,39 @@ func loadConfig(root string, configPath string) (settings.Config, bool, error) {
 	return settings.Load(settings.DefaultPath(root))
 }
 
-func applyConfig(root *string, outputFormat *string, maxCyclomatic *int, maxCognitive *int, production *bool, allRequires *bool, ignoreGenerated *bool, summaryOnly *bool, failOnIssues *bool, cfg settings.Config, seen map[string]bool) {
+func applyConfig(opts *cliOptions, cfg settings.Config, seen map[string]bool) {
 	if cfg.Root != "" && !seen["root"] && !seen["r"] {
-		*root = cfg.Root
+		opts.root = cfg.Root
 	}
 	if cfg.Format != "" && !seen["format"] && !seen["f"] {
-		*outputFormat = cfg.Format
+		opts.outputFormat = cfg.Format
 	}
 	if cfg.Health.MaxCyclomatic != 0 && !seen["max-cyclomatic"] {
-		*maxCyclomatic = cfg.Health.MaxCyclomatic
+		opts.maxCyclomatic = cfg.Health.MaxCyclomatic
 	}
 	if cfg.Health.MaxCognitive != 0 && !seen["max-cognitive"] {
-		*maxCognitive = cfg.Health.MaxCognitive
+		opts.maxCognitive = cfg.Health.MaxCognitive
 	}
 	if cfg.Production != nil && !seen["production"] {
-		*production = *cfg.Production
+		opts.production = *cfg.Production
 	}
 	if cfg.AllRequires != nil && !seen["all-requires"] {
-		*allRequires = *cfg.AllRequires
+		opts.allRequires = *cfg.AllRequires
 	}
 	if cfg.IgnoreGenerated != nil && !seen["ignore-generated"] {
-		*ignoreGenerated = *cfg.IgnoreGenerated
+		opts.ignoreGenerated = *cfg.IgnoreGenerated
 	}
 	if cfg.Summary != nil && !seen["summary"] {
-		*summaryOnly = *cfg.Summary
+		opts.summaryOnly = *cfg.Summary
 	}
 	if cfg.FailOnIssues != nil && !seen["fail-on-issues"] {
-		*failOnIssues = *cfg.FailOnIssues
+		opts.failOnIssues = *cfg.FailOnIssues
+	}
+	if opts.workspaceCSV == "" && len(cfg.Workspace) > 0 {
+		opts.workspaceCSV = strings.Join(cfg.Workspace, ",")
+	}
+	if opts.tagsCSV == "" && len(cfg.BuildTags) > 0 {
+		opts.tagsCSV = strings.Join(cfg.BuildTags, ",")
 	}
 }
 
