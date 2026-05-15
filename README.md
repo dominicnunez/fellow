@@ -37,8 +37,8 @@ Flags:
 - `--all-requires`: also check `// indirect` requirements for unused status
 - `--ignore-generated`: skip files with generated-code headers
 - `--summary`: print only counts in human output
-- `--max-cyclomatic`: maximum cyclomatic complexity before reporting
-- `--max-cognitive`: maximum cognitive complexity before reporting
+- `--max-cyclomatic`: enable cyclomatic complexity findings above this threshold
+- `--max-cognitive`: enable cognitive complexity findings above this threshold
 - `--workspace`: comma-separated module path or directory filters
 - `--tags`: comma-separated Go build tags
 - `--coverage`: Go coverage profile to annotate findings
@@ -53,6 +53,8 @@ Flags:
 Go has no direct equivalent to JavaScript `dependencies` and `devDependencies`, so `fellow` treats direct `require` entries as the primary dependency contract. Indirect requirements are ignored for unused dependency findings unless `--all-requires` is set.
 
 Dead-code detection is a closed-world static analysis of the scanned repo. When packages type-check, `fellow` uses `go/packages` and `go/types` object identity for exact function, method, type, and field liveness. Tagged struct fields are treated as externally used to avoid obvious false positives with JSON/database/reflection-based code.
+
+Complexity checks are opt-in. Set `--max-cyclomatic`, `--max-cognitive`, or the matching `health` config values to enable them.
 
 ## Configuration
 

@@ -845,6 +845,35 @@ func complex(v int) int {
 	assertSymbolFinding(t, report, FindingComplexity, "complex")
 }
 
+func TestAnalyzeSkipsComplexityWhenThresholdsAreUnset(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() { complex(1) }
+
+func complex(v int) int {
+	if v > 0 {
+		if v > 10 {
+			return v
+		}
+	}
+	return 0
+}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.ComplexityFindings; got != 0 {
+		t.Fatalf("complexity findings = %d; want 0", got)
+	}
+}
+
 func TestFunctionComplexityAlignsCognitiveScoringWithGocognitRules(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -964,6 +993,63 @@ func b() {
 	}
 	if got := report.Modules[0].Findings[0].Lines; got != 8 {
 		t.Fatalf("duplicated lines = %d; want 8", got)
+	}
+}
+
+func TestAnalyzeReportsTokenNormalizedDuplicateCode(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() { first(1); second(2) }
+
+type item struct { Left int; Right int }
+
+func first(value item) int {
+	total := value.Left
+	if value.Left > 0 {
+		total += one(value.Left)
+	}
+	if value.Left > 10 {
+		total += two(value.Left)
+	}
+	if value.Left > 20 {
+		total += three(value.Left)
+	}
+	return total
+}
+
+func second(value item) int {
+	total := value.Right
+	if value.Right > 0 {
+		total += one(value.Right)
+	}
+	if value.Right > 10 {
+		total += two(value.Right)
+	}
+	if value.Right > 20 {
+		total += three(value.Right)
+	}
+	return total
+}
+
+func one(value int) int { return value }
+func two(value int) int { return value }
+func three(value int) int { return value }
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.DuplicateGroups; got != 1 {
+		t.Fatalf("duplicate groups = %d; want 1", got)
+	}
+	if locations := report.Modules[0].Findings[0].Locations; len(locations) != 2 {
+		t.Fatalf("duplicate locations = %#v; want 2 locations", locations)
 	}
 }
 

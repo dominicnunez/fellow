@@ -44,8 +44,6 @@ const (
 	generatedDoNotEditMarker = "DO NOT EDIT"
 	ruleOffSeverity          = "off"
 	fingerprintLength        = 16
-	defaultMaxCyclomatic     = 20
-	defaultMaxCognitive      = 15
 )
 
 type Options struct {

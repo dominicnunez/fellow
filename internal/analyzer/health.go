@@ -6,19 +6,14 @@ import (
 )
 
 func healthFindings(module moduleState, opts Options) []Finding {
-	maxCyclomatic := opts.MaxCyclomatic
-	if maxCyclomatic == 0 {
-		maxCyclomatic = defaultMaxCyclomatic
-	}
-	maxCognitive := opts.MaxCognitive
-	if maxCognitive == 0 {
-		maxCognitive = defaultMaxCognitive
+	if opts.MaxCyclomatic <= 0 && opts.MaxCognitive <= 0 {
+		return nil
 	}
 
 	var findings []Finding
 	for _, pkg := range module.packages {
 		for _, source := range pkg.files {
-			findings = append(findings, healthFindingsForSource(pkg, source, maxCyclomatic, maxCognitive)...)
+			findings = append(findings, healthFindingsForSource(pkg, source, opts.MaxCyclomatic, opts.MaxCognitive)...)
 		}
 	}
 
@@ -34,13 +29,17 @@ func healthFindingsForSource(pkg packageState, source *sourceFile, maxCyclomatic
 		}
 
 		cyclomatic, cognitive := functionComplexity(fn)
-		if cyclomatic <= maxCyclomatic && cognitive <= maxCognitive {
+		if !complexityExceeded(cyclomatic, cognitive, maxCyclomatic, maxCognitive) {
 			continue
 		}
 		findings = append(findings, complexityFinding(pkg, source, fn, cyclomatic, cognitive))
 	}
 
 	return findings
+}
+
+func complexityExceeded(cyclomatic int, cognitive int, maxCyclomatic int, maxCognitive int) bool {
+	return maxCyclomatic > 0 && cyclomatic > maxCyclomatic || maxCognitive > 0 && cognitive > maxCognitive
 }
 
 func complexityFinding(pkg packageState, source *sourceFile, fn *ast.FuncDecl, cyclomatic int, cognitive int) Finding {

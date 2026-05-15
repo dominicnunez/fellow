@@ -4,14 +4,24 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"go/ast"
+	"go/scanner"
+	"go/token"
 	"os"
 	"sort"
 	"strings"
 )
 
 const (
-	duplicateWindowLines = 6
-	duplicateHashLength  = 12
+	duplicateWindowLines   = 6
+	duplicateWindowTokens  = 50
+	duplicateTokenMinLines = 8
+	duplicateHashLength    = 12
+)
+
+const (
+	duplicateLineKeyPrefix  = "line:"
+	duplicateTokenKeyPrefix = "token:"
 )
 
 type duplicateWindow struct {
@@ -34,6 +44,7 @@ func duplicateFindings(module moduleState) []Finding {
 				continue
 			}
 			collectDuplicateWindows(windows, source.relPath, string(data))
+			collectTokenDuplicateWindows(windows, source.relPath, data, source.file, source.fset)
 		}
 	}
 
@@ -55,6 +66,7 @@ func duplicateFindings(module moduleState) []Finding {
 	}
 
 	groups = coalesceDuplicateGroups(groups)
+	groups = removeOverlappingDuplicateGroups(groups)
 	findings := make([]Finding, 0, len(groups))
 	for _, group := range groups {
 		locations := group.locations
@@ -80,6 +92,47 @@ func duplicateFindings(module moduleState) []Finding {
 	}
 
 	return findings
+}
+
+func removeOverlappingDuplicateGroups(groups []duplicateGroup) []duplicateGroup {
+	filtered := make([]duplicateGroup, 0, len(groups))
+	for _, group := range groups {
+		if overlapsAnyDuplicateGroup(group, filtered) {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+
+	return filtered
+}
+
+func overlapsAnyDuplicateGroup(group duplicateGroup, groups []duplicateGroup) bool {
+	for _, existing := range groups {
+		if duplicateGroupsOverlap(existing, group) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func duplicateGroupsOverlap(left duplicateGroup, right duplicateGroup) bool {
+	for _, leftLocation := range left.locations {
+		for _, rightLocation := range right.locations {
+			if duplicateWindowsOverlap(leftLocation, rightLocation) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func duplicateWindowsOverlap(left duplicateWindow, right duplicateWindow) bool {
+	if left.file != right.file {
+		return false
+	}
+	return left.startLine <= right.endLine && right.startLine <= left.endLine
 }
 
 func coalesceDuplicateGroups(groups []duplicateGroup) []duplicateGroup {
@@ -156,13 +209,134 @@ func collectDuplicateWindows(windows map[string][]duplicateWindow, file string, 
 
 	for i := 0; i <= len(normalized)-duplicateWindowLines; i++ {
 		chunk := strings.Join(normalized[i:i+duplicateWindowLines], "\n")
-		key := duplicateKey(chunk)
+		key := duplicateKey(duplicateLineKeyPrefix + chunk)
 		windows[key] = append(windows[key], duplicateWindow{
 			file:      file,
 			startLine: lineNumbers[i],
 			endLine:   lineNumbers[i+duplicateWindowLines-1],
 		})
 	}
+}
+
+type duplicateToken struct {
+	value string
+	line  int
+}
+
+func collectTokenDuplicateWindows(windows map[string][]duplicateWindow, file string, content []byte, syntax *ast.File, fset *token.FileSet) {
+	tokens := duplicateTokens(file, content)
+	for _, body := range functionBodyLineRanges(syntax, fset) {
+		collectTokenSequenceDuplicateWindows(windows, file, tokensInLineRange(tokens, body))
+	}
+}
+
+func duplicateTokens(file string, content []byte) []duplicateToken {
+	fset := token.NewFileSet()
+	tokenFile := fset.AddFile(file, fset.Base(), len(content))
+	var scan scanner.Scanner
+	scan.Init(tokenFile, content, nil, 0)
+
+	tokens := make([]duplicateToken, 0)
+	previous := token.ILLEGAL
+	for {
+		pos, tok, _ := scan.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.SEMICOLON {
+			continue
+		}
+		value, ok := normalizeDuplicateToken(tok, previous)
+		if !ok {
+			continue
+		}
+		tokens = append(tokens, duplicateToken{
+			value: value,
+			line:  fset.Position(pos).Line,
+		})
+		previous = tok
+	}
+
+	return tokens
+}
+
+func functionBodyLineRanges(syntax *ast.File, fset *token.FileSet) []duplicateWindow {
+	if syntax == nil || fset == nil {
+		return nil
+	}
+
+	ranges := make([]duplicateWindow, 0)
+	for _, decl := range syntax.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ranges = append(ranges, duplicateWindow{
+			startLine: fset.Position(fn.Body.Lbrace).Line,
+			endLine:   fset.Position(fn.Body.Rbrace).Line,
+		})
+	}
+
+	return ranges
+}
+
+func tokensInLineRange(tokens []duplicateToken, lines duplicateWindow) []duplicateToken {
+	filtered := make([]duplicateToken, 0)
+	for _, tok := range tokens {
+		if tok.line < lines.startLine || tok.line > lines.endLine {
+			continue
+		}
+		filtered = append(filtered, tok)
+	}
+
+	return filtered
+}
+
+func collectTokenSequenceDuplicateWindows(windows map[string][]duplicateWindow, file string, tokens []duplicateToken) {
+	if len(tokens) < duplicateWindowTokens {
+		return
+	}
+
+	for i := 0; i <= len(tokens)-duplicateWindowTokens; i++ {
+		end := i + duplicateWindowTokens - 1
+		startLine := tokens[i].line
+		endLine := tokens[end].line
+		if endLine-startLine+1 < duplicateTokenMinLines {
+			continue
+		}
+
+		key := duplicateKey(duplicateTokenKeyPrefix + duplicateTokenChunk(tokens[i:i+duplicateWindowTokens]))
+		windows[key] = append(windows[key], duplicateWindow{
+			file:      file,
+			startLine: startLine,
+			endLine:   endLine,
+		})
+	}
+}
+
+func normalizeDuplicateToken(tok token.Token, previous token.Token) (string, bool) {
+	switch {
+	case tok == token.IDENT:
+		if previous == token.PERIOD {
+			return "FIELD", true
+		}
+		return tok.String(), true
+	case tok.IsLiteral():
+		return tok.String(), true
+	case tok == token.ILLEGAL || tok == token.COMMENT:
+		return "", false
+	default:
+		return tok.String(), true
+	}
+}
+
+func duplicateTokenChunk(tokens []duplicateToken) string {
+	values := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		values = append(values, tok.value)
+	}
+
+	return strings.Join(values, " ")
 }
 
 func normalizeDuplicateLine(line string) string {
@@ -201,5 +375,25 @@ func dedupeDuplicateWindows(locations []duplicateWindow) []duplicateWindow {
 		deduped = append(deduped, location)
 	}
 
-	return deduped
+	return mergeOverlappingDuplicateWindows(deduped)
+}
+
+func mergeOverlappingDuplicateWindows(locations []duplicateWindow) []duplicateWindow {
+	merged := make([]duplicateWindow, 0, len(locations))
+	for _, location := range locations {
+		lastIndex := len(merged) - 1
+		if lastIndex < 0 || !duplicateWindowsCanMerge(merged[lastIndex], location) {
+			merged = append(merged, location)
+			continue
+		}
+		if location.endLine > merged[lastIndex].endLine {
+			merged[lastIndex].endLine = location.endLine
+		}
+	}
+
+	return merged
+}
+
+func duplicateWindowsCanMerge(left duplicateWindow, right duplicateWindow) bool {
+	return left.file == right.file && right.startLine <= left.endLine+1
 }
