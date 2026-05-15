@@ -51,6 +51,26 @@ type cliOptions struct {
 	showVersion      bool
 }
 
+type humanFindingWriter func(io.Writer, analyzer.Finding)
+
+var humanFindingWriters = map[string]humanFindingWriter{
+	analyzer.FindingUnusedDependency:   writeUnusedDependencyFinding,
+	analyzer.FindingUnlistedDependency: writeUnlistedDependencyFinding,
+	analyzer.FindingTestOnlyDependency: writeTestOnlyDependencyFinding,
+	analyzer.FindingUnusedPackage:      writeUnusedPackageFinding,
+	analyzer.FindingUnusedFile:         writeUnusedFileFinding,
+	analyzer.FindingUnusedFunction:     writeUnusedFunctionFinding,
+	analyzer.FindingUnusedMethod:       writeUnusedMethodFinding,
+	analyzer.FindingUnusedStruct:       writeUnusedStructFinding,
+	analyzer.FindingUnusedInterface:    writeUnusedInterfaceFinding,
+	analyzer.FindingUnusedType:         writeUnusedTypeFinding,
+	analyzer.FindingUnusedVar:          writeUnusedVarFinding,
+	analyzer.FindingUnusedConst:        writeUnusedConstFinding,
+	analyzer.FindingUnusedField:        writeUnusedFieldFinding,
+	analyzer.FindingComplexity:         writeComplexityFinding,
+	analyzer.FindingDuplicateCode:      writeDuplicateCodeFinding,
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -254,38 +274,40 @@ func loadConfig(root string, configPath string) (settings.Config, bool, error) {
 }
 
 func applyConfig(opts *cliOptions, cfg settings.Config, seen map[string]bool) {
-	if cfg.Root != "" && !seen["root"] && !seen["r"] {
-		opts.root = cfg.Root
+	applyStringConfig(&opts.root, cfg.Root, !seen["root"] && !seen["r"])
+	applyStringConfig(&opts.outputFormat, cfg.Format, !seen["format"] && !seen["f"])
+	applyIntConfig(&opts.maxCyclomatic, cfg.Health.MaxCyclomatic, !seen["max-cyclomatic"])
+	applyIntConfig(&opts.maxCognitive, cfg.Health.MaxCognitive, !seen["max-cognitive"])
+	applyBoolConfig(&opts.production, cfg.Production, !seen["production"])
+	applyBoolConfig(&opts.allRequires, cfg.AllRequires, !seen["all-requires"])
+	applyBoolConfig(&opts.ignoreGenerated, cfg.IgnoreGenerated, !seen["ignore-generated"])
+	applyBoolConfig(&opts.summaryOnly, cfg.Summary, !seen["summary"])
+	applyBoolConfig(&opts.failOnIssues, cfg.FailOnIssues, !seen["fail-on-issues"])
+	applyStringSliceConfig(&opts.workspaceCSV, cfg.Workspace)
+	applyStringSliceConfig(&opts.tagsCSV, cfg.BuildTags)
+}
+
+func applyStringConfig(target *string, value string, allowed bool) {
+	if value != "" && allowed {
+		*target = value
 	}
-	if cfg.Format != "" && !seen["format"] && !seen["f"] {
-		opts.outputFormat = cfg.Format
+}
+
+func applyIntConfig(target *int, value int, allowed bool) {
+	if value != 0 && allowed {
+		*target = value
 	}
-	if cfg.Health.MaxCyclomatic != 0 && !seen["max-cyclomatic"] {
-		opts.maxCyclomatic = cfg.Health.MaxCyclomatic
+}
+
+func applyBoolConfig(target *bool, value *bool, allowed bool) {
+	if value != nil && allowed {
+		*target = *value
 	}
-	if cfg.Health.MaxCognitive != 0 && !seen["max-cognitive"] {
-		opts.maxCognitive = cfg.Health.MaxCognitive
-	}
-	if cfg.Production != nil && !seen["production"] {
-		opts.production = *cfg.Production
-	}
-	if cfg.AllRequires != nil && !seen["all-requires"] {
-		opts.allRequires = *cfg.AllRequires
-	}
-	if cfg.IgnoreGenerated != nil && !seen["ignore-generated"] {
-		opts.ignoreGenerated = *cfg.IgnoreGenerated
-	}
-	if cfg.Summary != nil && !seen["summary"] {
-		opts.summaryOnly = *cfg.Summary
-	}
-	if cfg.FailOnIssues != nil && !seen["fail-on-issues"] {
-		opts.failOnIssues = *cfg.FailOnIssues
-	}
-	if opts.workspaceCSV == "" && len(cfg.Workspace) > 0 {
-		opts.workspaceCSV = strings.Join(cfg.Workspace, ",")
-	}
-	if opts.tagsCSV == "" && len(cfg.BuildTags) > 0 {
-		opts.tagsCSV = strings.Join(cfg.BuildTags, ",")
+}
+
+func applyStringSliceConfig(target *string, values []string) {
+	if *target == "" && len(values) > 0 {
+		*target = strings.Join(values, ",")
 	}
 }
 
@@ -587,42 +609,78 @@ func writeHumanFindings(w io.Writer, report *analyzer.Report) {
 }
 
 func writeHumanFinding(w io.Writer, finding analyzer.Finding) {
-	switch finding.Type {
-	case analyzer.FindingUnusedDependency:
-		fmt.Fprintf(w, "  unused dependency %s %s at %s:%d", finding.Module, finding.Version, finding.File, finding.Line)
-		if len(finding.UsedInModules) > 0 {
-			fmt.Fprintf(w, " (used in %s)", strings.Join(finding.UsedInModules, ", "))
-		}
-		fmt.Fprintln(w)
-	case analyzer.FindingUnlistedDependency:
-		fmt.Fprintf(w, "  unlisted dependency %s imported at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
-	case analyzer.FindingTestOnlyDependency:
-		fmt.Fprintf(w, "  test-only dependency %s %s at %s:%d\n", finding.Module, finding.Version, finding.File, finding.Line)
-	case analyzer.FindingUnusedPackage:
-		fmt.Fprintf(w, "  unused package %s at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
-	case analyzer.FindingUnusedFile:
-		fmt.Fprintf(w, "  unused file %s:%d\n", finding.File, finding.Line)
-	case analyzer.FindingUnusedFunction:
-		fmt.Fprintf(w, "  unused function %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedMethod:
-		fmt.Fprintf(w, "  unused method %s.%s in %s at %s:%d\n", finding.Receiver, finding.Symbol, finding.Package, finding.File, finding.Line)
-	case analyzer.FindingUnusedStruct:
-		fmt.Fprintf(w, "  unused struct %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedInterface:
-		fmt.Fprintf(w, "  unused interface %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedType:
-		fmt.Fprintf(w, "  unused type %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedVar:
-		fmt.Fprintf(w, "  unused var %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedConst:
-		fmt.Fprintf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
-	case analyzer.FindingUnusedField:
-		fmt.Fprintf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
-	case analyzer.FindingComplexity:
-		fmt.Fprintf(w, "  complex function %s.%s at %s:%d (cyclomatic %d, cognitive %d)\n", finding.Package, finding.Symbol, finding.File, finding.Line, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
-	case analyzer.FindingDuplicateCode:
-		fmt.Fprintf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
-	default:
-		fmt.Fprintf(w, "  %s at %s:%d\n", finding.Type, finding.File, finding.Line)
+	writer, ok := humanFindingWriters[finding.Type]
+	if !ok {
+		writeDefaultFinding(w, finding)
+		return
 	}
+	writer(w, finding)
+}
+
+func writeUnusedDependencyFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused dependency %s %s at %s:%d", finding.Module, finding.Version, finding.File, finding.Line)
+	if len(finding.UsedInModules) > 0 {
+		fmt.Fprintf(w, " (used in %s)", strings.Join(finding.UsedInModules, ", "))
+	}
+	fmt.Fprintln(w)
+}
+
+func writeUnlistedDependencyFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unlisted dependency %s imported at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
+}
+
+func writeTestOnlyDependencyFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  test-only dependency %s %s at %s:%d\n", finding.Module, finding.Version, finding.File, finding.Line)
+}
+
+func writeUnusedPackageFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused package %s at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
+}
+
+func writeUnusedFileFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused file %s:%d\n", finding.File, finding.Line)
+}
+
+func writeUnusedFunctionFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused function %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedMethodFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused method %s.%s in %s at %s:%d\n", finding.Receiver, finding.Symbol, finding.Package, finding.File, finding.Line)
+}
+
+func writeUnusedStructFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused struct %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedInterfaceFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused interface %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedTypeFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused type %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedVarFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused var %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedConstFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+}
+
+func writeUnusedFieldFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
+}
+
+func writeComplexityFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  complex function %s.%s at %s:%d (cyclomatic %d, cognitive %d)\n", finding.Package, finding.Symbol, finding.File, finding.Line, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
+}
+
+func writeDuplicateCodeFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
+}
+
+func writeDefaultFinding(w io.Writer, finding analyzer.Finding) {
+	fmt.Fprintf(w, "  %s at %s:%d\n", finding.Type, finding.File, finding.Line)
 }
