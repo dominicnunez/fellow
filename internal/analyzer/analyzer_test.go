@@ -749,6 +749,7 @@ func a() {
 	total += 2
 	total += 3
 	total += 4
+	total += 5
 	_ = total
 }
 `)
@@ -760,6 +761,7 @@ func b() {
 	total += 2
 	total += 3
 	total += 4
+	total += 5
 	_ = total
 }
 `)
@@ -768,8 +770,11 @@ func b() {
 	if err != nil {
 		t.Fatalf("Analyze() error = %v", err)
 	}
-	if got := report.Summary.DuplicateGroups; got == 0 {
-		t.Fatalf("duplicate groups = %d; want at least 1", got)
+	if got := report.Summary.DuplicateGroups; got != 1 {
+		t.Fatalf("duplicate groups = %d; want 1", got)
+	}
+	if got := report.Modules[0].Findings[0].Lines; got != 8 {
+		t.Fatalf("duplicated lines = %d; want 8", got)
 	}
 }
 

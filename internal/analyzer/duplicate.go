@@ -20,6 +20,11 @@ type duplicateWindow struct {
 	endLine   int
 }
 
+type duplicateGroup struct {
+	key       string
+	locations []duplicateWindow
+}
+
 func duplicateFindings(module moduleState) []Finding {
 	windows := make(map[string][]duplicateWindow)
 	for _, pkg := range module.packages {
@@ -40,12 +45,19 @@ func duplicateFindings(module moduleState) []Finding {
 	}
 	sort.Strings(keys)
 
-	findings := make([]Finding, 0, len(keys))
+	groups := make([]duplicateGroup, 0, len(keys))
 	for _, key := range keys {
 		locations := dedupeDuplicateWindows(windows[key])
 		if len(locations) < 2 {
 			continue
 		}
+		groups = append(groups, duplicateGroup{key: key, locations: locations})
+	}
+
+	groups = coalesceDuplicateGroups(groups)
+	findings := make([]Finding, 0, len(groups))
+	for _, group := range groups {
+		locations := group.locations
 		first := locations[0]
 		findingLocations := make([]Location, 0, len(locations))
 		for _, loc := range locations {
@@ -58,16 +70,72 @@ func duplicateFindings(module moduleState) []Finding {
 
 		findings = append(findings, Finding{
 			Type:        FindingDuplicateCode,
-			Symbol:      duplicateSymbol(key),
+			Symbol:      duplicateSymbol(group.key),
 			File:        first.file,
 			Line:        first.startLine,
-			Lines:       duplicateWindowLines * (len(locations) - 1),
+			Lines:       duplicatedLineCount(locations),
 			Locations:   findingLocations,
 			Fingerprint: "",
 		})
 	}
 
 	return findings
+}
+
+func coalesceDuplicateGroups(groups []duplicateGroup) []duplicateGroup {
+	sort.Slice(groups, func(i, j int) bool {
+		left := groups[i].locations[0]
+		right := groups[j].locations[0]
+		if left.file == right.file {
+			return left.startLine < right.startLine
+		}
+		return left.file < right.file
+	})
+
+	coalesced := make([]duplicateGroup, 0, len(groups))
+	for _, group := range groups {
+		lastIndex := len(coalesced) - 1
+		if lastIndex >= 0 && canMergeDuplicateGroups(coalesced[lastIndex], group) {
+			mergeDuplicateGroup(&coalesced[lastIndex], group)
+			continue
+		}
+		coalesced = append(coalesced, group)
+	}
+
+	return coalesced
+}
+
+func canMergeDuplicateGroups(left duplicateGroup, right duplicateGroup) bool {
+	if len(left.locations) != len(right.locations) {
+		return false
+	}
+	for i := range left.locations {
+		leftLocation := left.locations[i]
+		rightLocation := right.locations[i]
+		if leftLocation.file != rightLocation.file {
+			return false
+		}
+		if rightLocation.startLine < leftLocation.startLine || rightLocation.startLine > leftLocation.endLine+1 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func mergeDuplicateGroup(left *duplicateGroup, right duplicateGroup) {
+	for i := range left.locations {
+		if right.locations[i].endLine > left.locations[i].endLine {
+			left.locations[i].endLine = right.locations[i].endLine
+		}
+	}
+}
+
+func duplicatedLineCount(locations []duplicateWindow) int {
+	if len(locations) < 2 {
+		return 0
+	}
+	return (locations[0].endLine - locations[0].startLine + 1) * (len(locations) - 1)
 }
 
 func collectDuplicateWindows(windows map[string][]duplicateWindow, file string, content string) {
