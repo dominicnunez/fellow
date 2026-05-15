@@ -55,10 +55,23 @@ type Options struct {
 	CheckIndirect     bool
 	Rules             map[string]string
 	IgnorePatterns    []string
+	IgnoreFindings    []FindingMatcher
 	WorkspacePatterns []string
 	BuildTags         []string
 	MaxCyclomatic     int
 	MaxCognitive      int
+}
+
+type FindingMatcher struct {
+	Type        string
+	File        string
+	Package     string
+	Module      string
+	ImportPath  string
+	Symbol      string
+	Receiver    string
+	Struct      string
+	Fingerprint string
 }
 
 type Report struct {
@@ -518,7 +531,7 @@ func unlistedDependencyFindings(unlistedByImport map[string][]ImportUse) []Findi
 }
 
 func filterFindings(findings []Finding, opts Options) []Finding {
-	if len(opts.Rules) == 0 && len(opts.IgnorePatterns) == 0 {
+	if len(opts.Rules) == 0 && len(opts.IgnorePatterns) == 0 && len(opts.IgnoreFindings) == 0 {
 		return findings
 	}
 
@@ -530,10 +543,43 @@ func filterFindings(findings []Finding, opts Options) []Finding {
 		if ignoredByPattern(finding.File, opts.IgnorePatterns) {
 			continue
 		}
+		if ignoredByFindingMatcher(finding, opts.IgnoreFindings) {
+			continue
+		}
 		filtered = append(filtered, finding)
 	}
 
 	return filtered
+}
+
+func ignoredByFindingMatcher(finding Finding, matchers []FindingMatcher) bool {
+	for _, matcher := range matchers {
+		if matcher.matches(finding) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m FindingMatcher) matches(finding Finding) bool {
+	return matchesString(m.Type, finding.Type) &&
+		matchesPath(m.File, finding.File) &&
+		matchesString(m.Package, finding.Package) &&
+		matchesString(m.Module, finding.Module) &&
+		matchesString(m.ImportPath, finding.ImportPath) &&
+		matchesString(m.Symbol, finding.Symbol) &&
+		matchesString(m.Receiver, finding.Receiver) &&
+		matchesString(m.Struct, finding.Struct) &&
+		matchesString(m.Fingerprint, finding.Fingerprint)
+}
+
+func matchesString(pattern string, value string) bool {
+	return pattern == "" || pattern == value
+}
+
+func matchesPath(pattern string, value string) bool {
+	return pattern == "" || matchPathPattern(pattern, value)
 }
 
 func ignoredByPattern(file string, patterns []string) bool {

@@ -20,7 +20,8 @@ func TestLoadConfig(t *testing.T) {
   "workspace": ["example.com/app"],
   "buildTags": ["integration"],
   "rules": {"unused-function": "off"},
-  "ignorePatterns": ["internal/generated/**"]
+  "ignorePatterns": ["internal/generated/**"],
+  "ignoreFindings": [{"type": "duplicate-code", "file": "**/*_test.go"}]
 }`)
 
 	cfg, ok, err := Load(path)
@@ -44,6 +45,9 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if len(cfg.BuildTags) != 1 || cfg.BuildTags[0] != "integration" {
 		t.Fatalf("BuildTags = %v; want [integration]", cfg.BuildTags)
+	}
+	if len(cfg.IgnoreFindings) != 1 || cfg.IgnoreFindings[0].Type != "duplicate-code" || cfg.IgnoreFindings[0].File != "**/*_test.go" {
+		t.Fatalf("IgnoreFindings = %#v; want duplicate-code test ignore", cfg.IgnoreFindings)
 	}
 }
 

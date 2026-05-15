@@ -534,6 +534,85 @@ func Dead() {}
 	}
 }
 
+func TestAnalyzeAppliesFindingIgnores(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+
+func Dead() {}
+`)
+
+	report, err := Analyze(Options{
+		Root:             root,
+		IncludeTests:     true,
+		IncludeGenerated: true,
+		IgnoreFindings: []FindingMatcher{{
+			Type:   FindingUnusedFunction,
+			File:   "main.go",
+			Symbol: "Dead",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.Findings; got != 0 {
+		t.Fatalf("findings = %d; want 0", got)
+	}
+}
+
+func TestAnalyzeFindingIgnoresCanUseFileGlobs(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "a_test.go", `package main
+
+func a() {
+	total := 0
+	total += 1
+	total += 2
+	total += 3
+	total += 4
+	total += 5
+	_ = total
+}
+`)
+	writeFile(t, root, "b_test.go", `package main
+
+func b() {
+	total := 0
+	total += 1
+	total += 2
+	total += 3
+	total += 4
+	total += 5
+	_ = total
+}
+`)
+
+	report, err := Analyze(Options{
+		Root:             root,
+		IncludeTests:     true,
+		IncludeGenerated: true,
+		IgnoreFindings: []FindingMatcher{{
+			Type: FindingDuplicateCode,
+			File: "*_test.go",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if got := report.Summary.DuplicateGroups; got != 0 {
+		t.Fatalf("duplicate groups = %d; want 0", got)
+	}
+}
+
 func TestAnalyzeAppliesLineSuppressions(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", `module example.com/app

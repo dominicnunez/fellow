@@ -65,6 +65,10 @@ Dead-code detection is a closed-world static analysis of the scanned repo. When 
   "workspace": ["github.com/acme/service"],
   "buildTags": ["integration"],
   "ignorePatterns": ["internal/generated/**"],
+  "ignoreFindings": [
+    {"type": "duplicate-code", "file": "**/*_test.go"},
+    {"type": "complexity", "file": "internal/parser.go", "symbol": "parseLegacyFormat"}
+  ],
   "health": {
     "maxCyclomatic": 20,
     "maxCognitive": 15
@@ -77,6 +81,8 @@ Dead-code detection is a closed-world static analysis of the scanned repo. When 
 ```
 
 Rule severities are `off`, `warn`, and `error`. The current CLI treats `warn` and `error` as reportable findings; `off` disables matching findings.
+
+Use `ignoreFindings` for known acceptable findings without ignoring every finding in a file. Each entry matches only the fields provided. `file` supports the same glob patterns as `ignorePatterns`; other fields match exactly, including `type`, `symbol`, `package`, `module`, `importPath`, `receiver`, `struct`, and `fingerprint`.
 
 ## Suppressions And Baselines
 

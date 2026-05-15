@@ -27,9 +27,22 @@ type Config struct {
 	FailOnIssues    *bool             `json:"failOnIssues"`
 	Rules           map[string]string `json:"rules"`
 	IgnorePatterns  []string          `json:"ignorePatterns"`
+	IgnoreFindings  []FindingMatcher  `json:"ignoreFindings"`
 	Workspace       []string          `json:"workspace"`
 	BuildTags       []string          `json:"buildTags"`
 	Health          Health            `json:"health"`
+}
+
+type FindingMatcher struct {
+	Type        string `json:"type"`
+	File        string `json:"file"`
+	Package     string `json:"package"`
+	Module      string `json:"module"`
+	ImportPath  string `json:"importPath"`
+	Symbol      string `json:"symbol"`
+	Receiver    string `json:"receiver"`
+	Struct      string `json:"struct"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 type Health struct {

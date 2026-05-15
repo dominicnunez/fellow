@@ -192,11 +192,34 @@ func analyzerOptions(opts cliOptions, cfg settings.Config) analyzer.Options {
 		CheckIndirect:     opts.allRequires,
 		Rules:             cfg.Rules,
 		IgnorePatterns:    cfg.IgnorePatterns,
+		IgnoreFindings:    analyzerFindingMatchers(cfg.IgnoreFindings),
 		WorkspacePatterns: splitCSV(opts.workspaceCSV),
 		BuildTags:         splitCSV(opts.tagsCSV),
 		MaxCyclomatic:     opts.maxCyclomatic,
 		MaxCognitive:      opts.maxCognitive,
 	}
+}
+
+func analyzerFindingMatchers(matchers []settings.FindingMatcher) []analyzer.FindingMatcher {
+	if len(matchers) == 0 {
+		return nil
+	}
+	out := make([]analyzer.FindingMatcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		out = append(out, analyzer.FindingMatcher{
+			Type:        matcher.Type,
+			File:        matcher.File,
+			Package:     matcher.Package,
+			Module:      matcher.Module,
+			ImportPath:  matcher.ImportPath,
+			Symbol:      matcher.Symbol,
+			Receiver:    matcher.Receiver,
+			Struct:      matcher.Struct,
+			Fingerprint: matcher.Fingerprint,
+		})
+	}
+
+	return out
 }
 
 func postProcessReport(opts cliOptions, report *analyzer.Report, stderr io.Writer) int {

@@ -1,0 +1,33 @@
+{
+  "ignoreFindings": [
+    {
+      "type": "duplicate-code",
+      "file": "**/*_test.go"
+    },
+    {
+      "type": "complexity",
+      "file": "internal/analyzer/deadcode.go",
+      "symbol": "scanModulePackages"
+    },
+    {
+      "type": "complexity",
+      "file": "internal/analyzer/deadcode.go",
+      "symbol": "collectUses"
+    },
+    {
+      "type": "complexity",
+      "file": "internal/analyzer/deadcode.go",
+      "symbol": "collectModuleUsage"
+    },
+    {
+      "type": "complexity",
+      "file": "internal/analyzer/typed.go",
+      "symbol": "collectTypedValueDeclarations"
+    },
+    {
+      "type": "complexity",
+      "file": "internal/analyzer/typed.go",
+      "symbol": "collectInterfaceMethodUses"
+    }
+  ]
+}
