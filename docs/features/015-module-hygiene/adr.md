@@ -9,50 +9,49 @@ Go module state is maintained by the Go command, especially `go mod tidy`. `fell
 Current dependency checks are based on direct requirements and imports. That catches the main Fallow-inspired dependency drift cases, but it does not explain all module hygiene concerns users encounter in CI:
 
 - tidy would edit `go.mod` or `go.sum`;
-- a `replace` directive is stale;
 - a local replacement was accidentally committed;
 - tool dependencies are intentionally present even without production imports;
-- imports are hidden behind build tags or platform constraints.
+- conventional tool-import patterns should not be misclassified as application dependency usage.
 
 ## Decision
 
-Add one module hygiene feature instead of six separate features.
+Add a focused first slice of module hygiene instead of a broad module-maintenance suite.
 
-The feature will extend dependency analysis with read-only module maintenance checks:
+The feature will extend dependency analysis with read-only checks for:
 
-- tidy drift detection;
-- `go.sum` integrity drift reporting;
-- unused and suspicious `replace` directive reporting;
-- Go tool dependency awareness;
-- build-context-aware dependency findings integrated with RFC 014.
+- tidy drift detection via `go mod tidy -diff`;
+- suspicious local `replace` directive reporting;
+- Go tool directive and conventional tool dependency awareness.
 
-This keeps related module concerns in one implementation and one user-facing configuration surface while preserving the separation between reporting and mutation.
+This keeps the first implementation immediately useful and low-risk while preserving the separation between reporting and mutation.
 
 ## Rationale
 
-- `go mod tidy`, `go.sum`, `replace`, and tool directives are all aspects of module graph hygiene.
-- Users want one answer for “is this module state clean?” rather than several unrelated commands.
-- Build tags affect dependency visibility, but the general matrix mechanism already belongs to RFC 014.
+- `go mod tidy -diff` gives a read-only answer for the highest-value module-file drift check.
+- Local `replace` directives are common accidental-commit risks and can be detected from `go.mod` without graph-heavy analysis.
+- Tool directives and `tools.go` patterns affect whether a requirement is intentionally present.
+- Detailed `go.sum`, unused replacement, and build-context matrixing can be added later if the first slice proves useful.
 - Read-only reporting is safer for CI and local review than automatic cleanup.
 
 ## Consequences
 
 - The analyzer must distinguish “unused dependency” from “intentionally retained for a tool”.
-- Some checks may depend on Go command behavior and should prefer non-mutating modes such as diff output.
+- Tidy drift depends on Go command behavior and should use non-mutating diff output.
 - JSON and CI serializers need new finding types.
 - Module hygiene findings should be suppressible through existing rule and targeted ignore mechanisms.
 - Auto-fix can later consume these findings, but only if RFC 005 is explicitly implemented.
+- The first slice intentionally does not classify every `go.sum` hunk or every unused replacement case.
 
 ## Alternatives Considered
 
-- Six independent features: rejected because they would fragment one module-hygiene workflow.
-- Implementing only tidy drift: rejected because `replace` and tool dependencies affect the same user decisions.
+- Broad module hygiene suite: rejected for the first slice because it would require fragile tidy-diff parsing and graph-heavy replacement analysis before the highest-value checks are proven.
+- Implementing only tidy drift: rejected because local `replace` and tool dependencies are low-risk additions that affect the same user decisions.
 - Running `go mod tidy` and applying edits: rejected because normal analysis must be read-only.
 - Adding dependency allow/block policy: rejected because that is a policy-linting problem, not dependency drift.
 
 ## Verification
 
-- Add fixtures for tidy drift, `go.sum` drift, stale `replace`, local `replace`, sibling-module replacement, tool directives, and build-tag-only imports.
+- Add fixtures for tidy drift in `go.mod`, tidy drift in `go.sum`, local replacement, sibling-module replacement, Go tool directives, and conventional `tools.go` imports.
 - Verify module files are unchanged after analysis.
 - Verify existing dependency findings remain unchanged when no module hygiene issues exist.
 - Verify all new findings round-trip through JSON, SARIF, CodeClimate, GitLab Code Quality, and annotations output.
