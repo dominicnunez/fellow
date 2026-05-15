@@ -39,14 +39,17 @@ func ApplyCoverage(path string, report *Report) error {
 	return nil
 }
 
-func parseCoverageProfile(path string) ([]coverageRange, error) {
+func parseCoverageProfile(path string) (ranges []coverageRange, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open coverage profile %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close coverage profile %s: %w", path, closeErr)
+		}
+	}()
 
-	var ranges []coverageRange
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

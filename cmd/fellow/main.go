@@ -83,7 +83,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 
 	report, err := analyzer.Analyze(analyzerOptions(opts, cfg))
 	if err != nil {
-		fmt.Fprintf(stderr, "analyze: %v\n", err)
+		writeDiagnostic(stderr, "analyze: %v\n", err)
 		return exitError
 	}
 	if code := postProcessReport(opts, report, stderr); code != exitOK {
@@ -111,11 +111,11 @@ func parseRunOptions(args []string, stdout io.Writer, stderr io.Writer) (cliOpti
 		return opts, settings.Config{}, exitError, false
 	}
 	if opts.showVersion {
-		fmt.Fprintf(stdout, "%s %s\n", appName, version)
+		writeDiagnostic(stdout, "%s %s\n", appName, version)
 		return opts, settings.Config{}, exitOK, false
 	}
 	if fs.NArg() > 1 {
-		fmt.Fprintf(stderr, "expected at most one root argument, got %d\n", fs.NArg())
+		writeDiagnostic(stderr, "expected at most one root argument, got %d\n", fs.NArg())
 		return opts, settings.Config{}, exitError, false
 	}
 
@@ -126,14 +126,14 @@ func parseRunOptions(args []string, stdout io.Writer, stderr io.Writer) (cliOpti
 	}
 	cfg, loaded, err := loadConfig(opts.root, opts.configPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "config: %v\n", err)
+		writeDiagnostic(stderr, "config: %v\n", err)
 		return opts, settings.Config{}, exitError, false
 	}
 	if loaded {
 		applyConfig(&opts, cfg, seenFlags)
 	}
 	if !supportedFormat(opts.outputFormat) {
-		fmt.Fprintf(stderr, "unsupported format %q\n", opts.outputFormat)
+		writeDiagnostic(stderr, "unsupported format %q\n", opts.outputFormat)
 		return opts, settings.Config{}, exitError, false
 	}
 
@@ -175,9 +175,8 @@ func newFlagSet(opts *cliOptions, stderr io.Writer) *flag.FlagSet {
 	fs.BoolVar(&opts.ci, "ci", false, "enable CI behavior: fail on findings")
 	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: %s [dead-code|audit] [flags] [root]\n\n", appName)
-		fmt.Fprintln(stderr, "Analyze Go modules for dead code and dependency drift.")
-		fmt.Fprintln(stderr)
+		writeDiagnostic(stderr, "Usage: %s [dead-code|audit] [flags] [root]\n\n", appName)
+		writeDiagnostic(stderr, "Analyze Go modules for dead code and dependency drift.\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -225,26 +224,26 @@ func analyzerFindingMatchers(matchers []settings.FindingMatcher) []analyzer.Find
 func postProcessReport(opts cliOptions, report *analyzer.Report, stderr io.Writer) int {
 	if opts.saveBaselinePath != "" {
 		if err := analyzer.SaveBaseline(opts.saveBaselinePath, report); err != nil {
-			fmt.Fprintf(stderr, "save baseline: %v\n", err)
+			writeDiagnostic(stderr, "save baseline: %v\n", err)
 			return exitError
 		}
 	}
 	if opts.baselinePath != "" {
 		if err := analyzer.ApplyBaseline(opts.baselinePath, report); err != nil {
-			fmt.Fprintf(stderr, "baseline: %v\n", err)
+			writeDiagnostic(stderr, "baseline: %v\n", err)
 			return exitError
 		}
 	}
 	if opts.coveragePath != "" {
 		if err := analyzer.ApplyCoverage(opts.coveragePath, report); err != nil {
-			fmt.Fprintf(stderr, "coverage: %v\n", err)
+			writeDiagnostic(stderr, "coverage: %v\n", err)
 			return exitError
 		}
 	}
 	if opts.command == "audit" {
 		changed, err := changedFiles(opts.root, opts.baseRef)
 		if err != nil {
-			fmt.Fprintf(stderr, "audit: %v\n", err)
+			writeDiagnostic(stderr, "audit: %v\n", err)
 			return exitError
 		}
 		filterReportFiles(report, changed)
@@ -257,26 +256,36 @@ func writeOutput(stdout io.Writer, stderr io.Writer, report *analyzer.Report, op
 	switch opts.outputFormat {
 	case formatJSON:
 		if err := writeJSON(stdout, report); err != nil {
-			fmt.Fprintf(stderr, "write json: %v\n", err)
+			writeDiagnostic(stderr, "write json: %v\n", err)
 			return exitError
 		}
 	case formatHuman:
-		writeHuman(stdout, report, opts.summaryOnly)
+		if err := writeHuman(stdout, report, opts.summaryOnly); err != nil {
+			writeDiagnostic(stderr, "write human: %v\n", err)
+			return exitError
+		}
 	case formatSARIF:
 		if err := writeSARIF(stdout, report); err != nil {
-			fmt.Fprintf(stderr, "write sarif: %v\n", err)
+			writeDiagnostic(stderr, "write sarif: %v\n", err)
 			return exitError
 		}
 	case formatCodeClimate, formatGitLabCodeQuality:
 		if err := writeCodeClimate(stdout, report); err != nil {
-			fmt.Fprintf(stderr, "write code quality: %v\n", err)
+			writeDiagnostic(stderr, "write code quality: %v\n", err)
 			return exitError
 		}
 	case formatAnnotations:
-		writeAnnotations(stdout, report)
+		if err := writeAnnotations(stdout, report); err != nil {
+			writeDiagnostic(stderr, "write annotations: %v\n", err)
+			return exitError
+		}
 	}
 
 	return exitOK
+}
+
+func writeDiagnostic(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }
 
 func visitedFlags(fs *flag.FlagSet) map[string]bool {
@@ -529,10 +538,13 @@ func writeCodeClimate(w io.Writer, report *analyzer.Report) error {
 	return enc.Encode(issues)
 }
 
-func writeAnnotations(w io.Writer, report *analyzer.Report) {
+func writeAnnotations(w io.Writer, report *analyzer.Report) error {
+	var builder strings.Builder
 	for _, finding := range allFindings(report) {
-		fmt.Fprintf(w, "::warning file=%s,line=%d::%s\n", escapeAnnotationProperty(finding.File), finding.Line, escapeAnnotation(findingMessage(finding)))
+		appendf(&builder, "::warning file=%s,line=%d::%s\n", escapeAnnotationProperty(finding.File), finding.Line, escapeAnnotation(findingMessage(finding)))
 	}
+	_, err := io.WriteString(w, builder.String())
+	return err
 }
 
 func allFindings(report *analyzer.Report) []analyzer.Finding {
@@ -572,49 +584,53 @@ func escapeAnnotationProperty(value string) string {
 	return value
 }
 
-func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) {
+func writeHuman(w io.Writer, report *analyzer.Report, summaryOnly bool) error {
+	var builder strings.Builder
 	if !summaryOnly {
-		writeHumanFindings(w, report)
+		writeHumanFindings(&builder, report)
 	}
 
-	fmt.Fprintln(w, "Summary")
-	fmt.Fprintf(w, "  modules: %d\n", report.Summary.Modules)
-	fmt.Fprintf(w, "  findings: %d\n", report.Summary.Findings)
+	appendln(&builder, "Summary")
+	appendf(&builder, "  modules: %d\n", report.Summary.Modules)
+	appendf(&builder, "  findings: %d\n", report.Summary.Findings)
 	if report.Summary.SuppressedFindings > 0 {
-		fmt.Fprintf(w, "  suppressed findings: %d\n", report.Summary.SuppressedFindings)
+		appendf(&builder, "  suppressed findings: %d\n", report.Summary.SuppressedFindings)
 	}
 	if report.Summary.SuppressedByBaseline > 0 {
-		fmt.Fprintf(w, "  suppressed by baseline: %d\n", report.Summary.SuppressedByBaseline)
+		appendf(&builder, "  suppressed by baseline: %d\n", report.Summary.SuppressedByBaseline)
 	}
 	if report.Summary.SkippedModules > 0 {
-		fmt.Fprintf(w, "  skipped modules: %d\n", report.Summary.SkippedModules)
+		appendf(&builder, "  skipped modules: %d\n", report.Summary.SkippedModules)
 	}
 	if report.Summary.CoveredFindings > 0 || report.Summary.UncoveredFindings > 0 {
-		fmt.Fprintf(w, "  covered findings: %d\n", report.Summary.CoveredFindings)
-		fmt.Fprintf(w, "  uncovered findings: %d\n", report.Summary.UncoveredFindings)
+		appendf(&builder, "  covered findings: %d\n", report.Summary.CoveredFindings)
+		appendf(&builder, "  uncovered findings: %d\n", report.Summary.UncoveredFindings)
 	}
-	fmt.Fprintf(w, "  unused dependencies: %d\n", report.Summary.UnusedDependencies)
-	fmt.Fprintf(w, "  unlisted dependencies: %d\n", report.Summary.UnlistedDependencies)
-	fmt.Fprintf(w, "  test-only dependencies: %d\n", report.Summary.TestOnlyDependencies)
-	fmt.Fprintf(w, "  unused packages: %d\n", report.Summary.UnusedPackages)
-	fmt.Fprintf(w, "  unused files: %d\n", report.Summary.UnusedFiles)
-	fmt.Fprintf(w, "  unused functions: %d\n", report.Summary.UnusedFunctions)
-	fmt.Fprintf(w, "  unused methods: %d\n", report.Summary.UnusedMethods)
-	fmt.Fprintf(w, "  unused structs: %d\n", report.Summary.UnusedStructs)
-	fmt.Fprintf(w, "  unused interfaces: %d\n", report.Summary.UnusedInterfaces)
-	fmt.Fprintf(w, "  unused types: %d\n", report.Summary.UnusedTypes)
-	fmt.Fprintf(w, "  unused vars: %d\n", report.Summary.UnusedVars)
-	fmt.Fprintf(w, "  unused consts: %d\n", report.Summary.UnusedConsts)
-	fmt.Fprintf(w, "  unused fields: %d\n", report.Summary.UnusedFields)
-	fmt.Fprintf(w, "  complexity findings: %d\n", report.Summary.ComplexityFindings)
-	fmt.Fprintf(w, "  duplicate groups: %d\n", report.Summary.DuplicateGroups)
-	fmt.Fprintf(w, "  duplicated lines: %d\n", report.Summary.DuplicatedLines)
+	appendf(&builder, "  unused dependencies: %d\n", report.Summary.UnusedDependencies)
+	appendf(&builder, "  unlisted dependencies: %d\n", report.Summary.UnlistedDependencies)
+	appendf(&builder, "  test-only dependencies: %d\n", report.Summary.TestOnlyDependencies)
+	appendf(&builder, "  unused packages: %d\n", report.Summary.UnusedPackages)
+	appendf(&builder, "  unused files: %d\n", report.Summary.UnusedFiles)
+	appendf(&builder, "  unused functions: %d\n", report.Summary.UnusedFunctions)
+	appendf(&builder, "  unused methods: %d\n", report.Summary.UnusedMethods)
+	appendf(&builder, "  unused structs: %d\n", report.Summary.UnusedStructs)
+	appendf(&builder, "  unused interfaces: %d\n", report.Summary.UnusedInterfaces)
+	appendf(&builder, "  unused types: %d\n", report.Summary.UnusedTypes)
+	appendf(&builder, "  unused vars: %d\n", report.Summary.UnusedVars)
+	appendf(&builder, "  unused consts: %d\n", report.Summary.UnusedConsts)
+	appendf(&builder, "  unused fields: %d\n", report.Summary.UnusedFields)
+	appendf(&builder, "  complexity findings: %d\n", report.Summary.ComplexityFindings)
+	appendf(&builder, "  duplicate groups: %d\n", report.Summary.DuplicateGroups)
+	appendf(&builder, "  duplicated lines: %d\n", report.Summary.DuplicatedLines)
+
+	_, err := io.WriteString(w, builder.String())
+	return err
 }
 
-func writeHumanFindings(w io.Writer, report *analyzer.Report) {
+func writeHumanFindings(w *strings.Builder, report *analyzer.Report) {
 	if report.Summary.Findings == 0 {
-		fmt.Fprintln(w, "No Go dead-code or dependency findings.")
-		fmt.Fprintln(w)
+		appendln(w, "No Go dead-code or dependency findings.")
+		appendln(w)
 		return
 	}
 
@@ -623,15 +639,15 @@ func writeHumanFindings(w io.Writer, report *analyzer.Report) {
 			continue
 		}
 
-		fmt.Fprintf(w, "%s (%s)\n", module.ModulePath, module.Dir)
+		appendf(w, "%s (%s)\n", module.ModulePath, module.Dir)
 		for _, finding := range module.Findings {
 			writeHumanFinding(w, finding)
 		}
-		fmt.Fprintln(w)
+		appendln(w)
 	}
 }
 
-func writeHumanFinding(w io.Writer, finding analyzer.Finding) {
+func writeHumanFinding(w *strings.Builder, finding analyzer.Finding) {
 	writer, ok := humanFindingWriters[finding.Type]
 	if !ok {
 		writeDefaultFinding(w, finding)
@@ -641,69 +657,77 @@ func writeHumanFinding(w io.Writer, finding analyzer.Finding) {
 }
 
 func writeUnusedDependencyFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused dependency %s %s at %s:%d", finding.Module, finding.Version, finding.File, finding.Line)
+	appendf(w, "  unused dependency %s %s at %s:%d", finding.Module, finding.Version, finding.File, finding.Line)
 	if len(finding.UsedInModules) > 0 {
-		fmt.Fprintf(w, " (used in %s)", strings.Join(finding.UsedInModules, ", "))
+		appendf(w, " (used in %s)", strings.Join(finding.UsedInModules, ", "))
 	}
-	fmt.Fprintln(w)
+	appendln(w)
 }
 
 func writeUnlistedDependencyFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unlisted dependency %s imported at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
+	appendf(w, "  unlisted dependency %s imported at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
 }
 
 func writeTestOnlyDependencyFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  test-only dependency %s %s at %s:%d\n", finding.Module, finding.Version, finding.File, finding.Line)
+	appendf(w, "  test-only dependency %s %s at %s:%d\n", finding.Module, finding.Version, finding.File, finding.Line)
 }
 
 func writeUnusedPackageFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused package %s at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
+	appendf(w, "  unused package %s at %s:%d\n", finding.ImportPath, finding.File, finding.Line)
 }
 
 func writeUnusedFileFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused file %s:%d\n", finding.File, finding.Line)
+	appendf(w, "  unused file %s:%d\n", finding.File, finding.Line)
 }
 
 func writeUnusedFunctionFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused function %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused function %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedMethodFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused method %s.%s in %s at %s:%d\n", finding.Receiver, finding.Symbol, finding.Package, finding.File, finding.Line)
+	appendf(w, "  unused method %s.%s in %s at %s:%d\n", finding.Receiver, finding.Symbol, finding.Package, finding.File, finding.Line)
 }
 
 func writeUnusedStructFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused struct %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused struct %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedInterfaceFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused interface %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused interface %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedTypeFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused type %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused type %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedVarFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused var %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused var %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedConstFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
+	appendf(w, "  unused const %s.%s at %s:%d\n", finding.Package, finding.Symbol, finding.File, finding.Line)
 }
 
 func writeUnusedFieldFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
+	appendf(w, "  unused field %s.%s in %s at %s:%d\n", finding.Struct, finding.Symbol, finding.Package, finding.File, finding.Line)
 }
 
 func writeComplexityFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  complex function %s.%s at %s:%d (cyclomatic %d, cognitive %d)\n", finding.Package, finding.Symbol, finding.File, finding.Line, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
+	appendf(w, "  complex function %s.%s at %s:%d (cyclomatic %d, cognitive %d)\n", finding.Package, finding.Symbol, finding.File, finding.Line, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
 }
 
 func writeDuplicateCodeFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
+	appendf(w, "  duplicate code %s at %s:%d (%d duplicated lines)\n", finding.Symbol, finding.File, finding.Line, finding.Lines)
 }
 
 func writeDefaultFinding(w io.Writer, finding analyzer.Finding) {
-	fmt.Fprintf(w, "  %s at %s:%d\n", finding.Type, finding.File, finding.Line)
+	appendf(w, "  %s at %s:%d\n", finding.Type, finding.File, finding.Line)
+}
+
+func appendf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+func appendln(w io.Writer, args ...any) {
+	_, _ = fmt.Fprintln(w, args...)
 }

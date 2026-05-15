@@ -99,7 +99,9 @@ func TestWriteCIFormats(t *testing.T) {
 	}
 
 	var annotations bytes.Buffer
-	writeAnnotations(&annotations, report)
+	if err := writeAnnotations(&annotations, report); err != nil {
+		t.Fatalf("writeAnnotations() error = %v", err)
+	}
 	if got := annotations.String(); !strings.Contains(got, "::warning file=main.go,line=4::unused-function: Dead") {
 		t.Fatalf("annotations = %q; want warning for unused function", got)
 	}
