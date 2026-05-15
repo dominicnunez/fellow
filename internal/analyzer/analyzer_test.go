@@ -309,6 +309,36 @@ func main() { lib.Used() }
 	assertNoSymbolFinding(t, report, FindingUnusedField, "Tagged")
 }
 
+func TestAnalyzeReportsFunctionsOnlyCalledByDeadFunctions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", `module example.com/app
+
+go 1.25
+`)
+	writeFile(t, root, "main.go", `package main
+
+func main() { live() }
+
+func live() {}
+
+func deadWrapper() { onlyCalledByDeadWrapper() }
+
+func onlyCalledByDeadWrapper() {}
+`)
+
+	report, err := Analyze(Options{Root: root, IncludeTests: true, IncludeGenerated: true})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	if got := report.Summary.UnusedFunctions; got != 2 {
+		t.Fatalf("unused functions = %d; want 2", got)
+	}
+	assertSymbolFinding(t, report, FindingUnusedFunction, "deadWrapper")
+	assertSymbolFinding(t, report, FindingUnusedFunction, "onlyCalledByDeadWrapper")
+	assertNoSymbolFinding(t, report, FindingUnusedFunction, "live")
+}
+
 func TestAnalyzeTreatsDecodedStructFieldsAsUsed(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "go.mod", `module example.com/app

@@ -89,19 +89,21 @@ type sourceFile struct {
 }
 
 type declaration struct {
-	Kind       string
-	Name       string
-	Receiver   string
-	Struct     string
-	FieldType  string
-	File       string
-	Line       int
-	EndLine    int
-	HasTag     bool
-	Special    bool
-	SideEffect bool
-	Typed      bool
-	TypedUsed  bool
+	Kind             string
+	Name             string
+	Receiver         string
+	Struct           string
+	FieldType        string
+	File             string
+	Line             int
+	EndLine          int
+	HasTag           bool
+	Special          bool
+	SideEffect       bool
+	Typed            bool
+	TypedUsed        bool
+	RuntimeChecked   bool
+	RuntimeReachable bool
 }
 
 type codeUse struct {
@@ -1084,6 +1086,16 @@ func packageSymbolKey(packageIndex int, symbol string) string {
 func declarationUsed(pkg packageState, decl declaration, usage moduleUsage, reflectiveStructs map[string]struct{}) bool {
 	if decl.Special {
 		return true
+	}
+	if decl.Kind == declarationFunction && decl.RuntimeChecked {
+		return decl.RuntimeReachable
+	}
+	if decl.Kind == declarationMethod && decl.RuntimeChecked {
+		if decl.RuntimeReachable {
+			return true
+		}
+		_, implementsInterface := usage.interfaceMethods[decl.Name]
+		return implementsInterface
 	}
 	if decl.Typed {
 		return typedDeclarationUsed(pkg, decl, usage, reflectiveStructs)

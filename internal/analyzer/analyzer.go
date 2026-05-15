@@ -211,6 +211,7 @@ func Analyze(opts Options) (*Report, error) {
 		modules[i].packages = packages
 		modules[i].imports = imports
 		applyTypedInfo(absRoot, &modules[i], opts)
+		applyRuntimeReachability(absRoot, &modules[i], opts)
 	}
 
 	suppressedByComment := 0
