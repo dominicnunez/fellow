@@ -192,50 +192,23 @@ func (v *cognitiveComplexityVisitor) visitIfStmt(stmt *ast.IfStmt) {
 }
 
 func (v *cognitiveComplexityVisitor) visitForStmt(stmt *ast.ForStmt) {
-	v.incrementNested()
-	if stmt.Init != nil {
-		ast.Walk(v, stmt.Init)
-	}
-	if stmt.Cond != nil {
-		ast.Walk(v, stmt.Cond)
-	}
-	if stmt.Post != nil {
-		ast.Walk(v, stmt.Post)
-	}
-	v.walkNested(stmt.Body)
+	v.visitNestedBody(stmt.Body, stmt.Init, stmt.Cond, stmt.Post)
 }
 
 func (v *cognitiveComplexityVisitor) visitRangeStmt(stmt *ast.RangeStmt) {
-	v.incrementNested()
-	ast.Walk(v, stmt.X)
-	v.walkNested(stmt.Body)
+	v.visitNestedBody(stmt.Body, stmt.X)
 }
 
 func (v *cognitiveComplexityVisitor) visitSwitchStmt(stmt *ast.SwitchStmt) {
-	v.incrementNested()
-	if stmt.Init != nil {
-		ast.Walk(v, stmt.Init)
-	}
-	if stmt.Tag != nil {
-		ast.Walk(v, stmt.Tag)
-	}
-	v.walkNested(stmt.Body)
+	v.visitNestedBody(stmt.Body, stmt.Init, stmt.Tag)
 }
 
 func (v *cognitiveComplexityVisitor) visitTypeSwitchStmt(stmt *ast.TypeSwitchStmt) {
-	v.incrementNested()
-	if stmt.Init != nil {
-		ast.Walk(v, stmt.Init)
-	}
-	if stmt.Assign != nil {
-		ast.Walk(v, stmt.Assign)
-	}
-	v.walkNested(stmt.Body)
+	v.visitNestedBody(stmt.Body, stmt.Init, stmt.Assign)
 }
 
 func (v *cognitiveComplexityVisitor) visitSelectStmt(stmt *ast.SelectStmt) {
-	v.incrementNested()
-	v.walkNested(stmt.Body)
+	v.visitNestedBody(stmt.Body)
 }
 
 func (v *cognitiveComplexityVisitor) visitFuncLit(lit *ast.FuncLit) {
@@ -281,6 +254,16 @@ func (v *cognitiveComplexityVisitor) walkNested(node ast.Node) {
 	v.nesting++
 	ast.Walk(v, node)
 	v.nesting--
+}
+
+func (v *cognitiveComplexityVisitor) visitNestedBody(body ast.Node, headers ...ast.Node) {
+	v.incrementNested()
+	for _, header := range headers {
+		if header != nil {
+			ast.Walk(v, header)
+		}
+	}
+	v.walkNested(body)
 }
 
 func (v *cognitiveComplexityVisitor) increment() {
