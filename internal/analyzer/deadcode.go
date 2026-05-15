@@ -839,7 +839,15 @@ func deadCodeFindings(module moduleState) []Finding {
 	fileHasLiveDeclaration := make(map[string]bool)
 	findings := make([]Finding, 0)
 
-	for i, pkg := range module.packages {
+	findings = append(findings, unusedDeclarationFindings(module.packages, reachable, usage, reflectiveStructs, deadStructs, fileHasLiveDeclaration)...)
+	findings = append(findings, unusedFileFindings(module.packages, reachable, fileHasLiveDeclaration)...)
+
+	return findings
+}
+
+func unusedDeclarationFindings(packages []packageState, reachable map[int]bool, usage moduleUsage, reflectiveStructs map[int]map[string]struct{}, deadStructs map[string]bool, fileHasLiveDeclaration map[string]bool) []Finding {
+	findings := make([]Finding, 0)
+	for i, pkg := range packages {
 		if pkg.isExternalTest {
 			continue
 		}
@@ -852,7 +860,7 @@ func deadCodeFindings(module moduleState) []Finding {
 			if decl.Kind == declarationField {
 				continue
 			}
-			if decl.Kind == declarationMethod && deadStructs[packageSymbolKey(i, decl.Receiver)] {
+			if declarationBlockedByDeadStruct(i, decl, deadStructs) {
 				continue
 			}
 			if declarationUsed(pkg, decl, usage, reflectiveStructs[i]) {
@@ -866,7 +874,7 @@ func deadCodeFindings(module moduleState) []Finding {
 			if decl.Kind != declarationField || decl.HasTag {
 				continue
 			}
-			if deadStructs[packageSymbolKey(i, decl.Struct)] {
+			if declarationBlockedByDeadStruct(i, decl, deadStructs) {
 				continue
 			}
 			if declarationUsed(pkg, decl, usage, reflectiveStructs[i]) {
@@ -877,7 +885,12 @@ func deadCodeFindings(module moduleState) []Finding {
 		}
 	}
 
-	for i, pkg := range module.packages {
+	return findings
+}
+
+func unusedFileFindings(packages []packageState, reachable map[int]bool, fileHasLiveDeclaration map[string]bool) []Finding {
+	findings := make([]Finding, 0)
+	for i, pkg := range packages {
 		if pkg.isExternalTest || !reachable[i] {
 			continue
 		}
@@ -899,6 +912,17 @@ func deadCodeFindings(module moduleState) []Finding {
 	}
 
 	return findings
+}
+
+func declarationBlockedByDeadStruct(packageIndex int, decl declaration, deadStructs map[string]bool) bool {
+	switch decl.Kind {
+	case declarationMethod:
+		return deadStructs[packageSymbolKey(packageIndex, decl.Receiver)]
+	case declarationField:
+		return deadStructs[packageSymbolKey(packageIndex, decl.Struct)]
+	default:
+		return false
+	}
 }
 
 func reachablePackages(module moduleState, packageByImport map[string]int) map[int]bool {

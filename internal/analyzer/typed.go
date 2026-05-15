@@ -244,76 +244,103 @@ func collectInterfaceMethodUses(pkgs []*packages.Package, typedDecls map[declara
 }
 
 func collectInterfaceTypes(pkgs []*packages.Package) []*types.Interface {
-	var interfaces []*types.Interface
-	seenTypes := make(map[types.Type]struct{})
-	seenInterfaces := make(map[*types.Interface]struct{})
-
-	var addType func(types.Type)
-	addType = func(typ types.Type) {
-		if typ == nil {
-			return
-		}
-		if _, ok := seenTypes[typ]; ok {
-			return
-		}
-		seenTypes[typ] = struct{}{}
-
-		switch t := typ.(type) {
-		case *types.Named:
-			addType(t.Underlying())
-		case *types.Pointer:
-			addType(t.Elem())
-		case *types.Slice:
-			addType(t.Elem())
-		case *types.Array:
-			addType(t.Elem())
-		case *types.Map:
-			addType(t.Key())
-			addType(t.Elem())
-		case *types.Chan:
-			addType(t.Elem())
-		case *types.Signature:
-			if t.Recv() != nil {
-				addType(t.Recv().Type())
-			}
-			addTupleTypes(t.Params(), addType)
-			addTupleTypes(t.Results(), addType)
-		case *types.Struct:
-			for i := range t.NumFields() {
-				addType(t.Field(i).Type())
-			}
-		case *types.Interface:
-			t.Complete()
-			if _, ok := seenInterfaces[t]; !ok {
-				seenInterfaces[t] = struct{}{}
-				interfaces = append(interfaces, t)
-			}
-			for i := range t.NumEmbeddeds() {
-				addType(t.EmbeddedType(i))
-			}
-		}
-	}
-
+	walker := newInterfaceTypeWalker()
 	for _, pkg := range pkgs {
-		if pkg == nil || pkg.TypesInfo == nil {
-			continue
-		}
-		for _, obj := range pkg.TypesInfo.Defs {
-			if obj != nil {
-				addType(obj.Type())
-			}
-		}
-		for _, obj := range pkg.TypesInfo.Uses {
-			if obj != nil {
-				addType(obj.Type())
-			}
-		}
-		for _, value := range pkg.TypesInfo.Types {
-			addType(value.Type)
-		}
+		walker.addPackage(pkg)
 	}
 
-	return interfaces
+	return walker.interfaces
+}
+
+type interfaceTypeWalker struct {
+	interfaces     []*types.Interface
+	seenTypes      map[types.Type]struct{}
+	seenInterfaces map[*types.Interface]struct{}
+}
+
+func newInterfaceTypeWalker() *interfaceTypeWalker {
+	return &interfaceTypeWalker{
+		seenTypes:      make(map[types.Type]struct{}),
+		seenInterfaces: make(map[*types.Interface]struct{}),
+	}
+}
+
+func (w *interfaceTypeWalker) addPackage(pkg *packages.Package) {
+	if pkg == nil || pkg.TypesInfo == nil {
+		return
+	}
+	for _, obj := range pkg.TypesInfo.Defs {
+		w.addObject(obj)
+	}
+	for _, obj := range pkg.TypesInfo.Uses {
+		w.addObject(obj)
+	}
+	for _, value := range pkg.TypesInfo.Types {
+		w.addType(value.Type)
+	}
+}
+
+func (w *interfaceTypeWalker) addObject(obj types.Object) {
+	if obj != nil {
+		w.addType(obj.Type())
+	}
+}
+
+func (w *interfaceTypeWalker) addType(typ types.Type) {
+	if typ == nil {
+		return
+	}
+	if _, ok := w.seenTypes[typ]; ok {
+		return
+	}
+	w.seenTypes[typ] = struct{}{}
+
+	switch t := typ.(type) {
+	case *types.Named:
+		w.addType(t.Underlying())
+	case *types.Pointer:
+		w.addType(t.Elem())
+	case *types.Slice:
+		w.addType(t.Elem())
+	case *types.Array:
+		w.addType(t.Elem())
+	case *types.Map:
+		w.addType(t.Key())
+		w.addType(t.Elem())
+	case *types.Chan:
+		w.addType(t.Elem())
+	case *types.Signature:
+		w.addSignature(t)
+	case *types.Struct:
+		w.addStruct(t)
+	case *types.Interface:
+		w.addInterface(t)
+	}
+}
+
+func (w *interfaceTypeWalker) addSignature(sig *types.Signature) {
+	if sig.Recv() != nil {
+		w.addType(sig.Recv().Type())
+	}
+	addTupleTypes(sig.Params(), w.addType)
+	addTupleTypes(sig.Results(), w.addType)
+}
+
+func (w *interfaceTypeWalker) addStruct(strct *types.Struct) {
+	for i := range strct.NumFields() {
+		w.addType(strct.Field(i).Type())
+	}
+}
+
+func (w *interfaceTypeWalker) addInterface(iface *types.Interface) {
+	iface.Complete()
+	if _, ok := w.seenInterfaces[iface]; !ok {
+		w.seenInterfaces[iface] = struct{}{}
+		w.interfaces = append(w.interfaces, iface)
+	}
+	for i := range iface.NumEmbeddeds() {
+		w.addType(iface.EmbeddedType(i))
+	}
 }
 
 func addTupleTypes(tuple *types.Tuple, addType func(types.Type)) {

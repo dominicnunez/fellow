@@ -619,51 +619,64 @@ func summarize(modules []ModuleReport) Summary {
 
 	for _, module := range modules {
 		for _, finding := range module.Findings {
-			summary.Findings++
-			if finding.Coverage != nil {
-				if finding.Coverage.Covered {
-					summary.CoveredFindings++
-				} else {
-					summary.UncoveredFindings++
-				}
-			}
-			switch finding.Type {
-			case FindingUnusedDependency:
-				summary.UnusedDependencies++
-			case FindingUnlistedDependency:
-				summary.UnlistedDependencies++
-			case FindingTestOnlyDependency:
-				summary.TestOnlyDependencies++
-			case FindingUnusedPackage:
-				summary.UnusedPackages++
-			case FindingUnusedFile:
-				summary.UnusedFiles++
-			case FindingUnusedFunction:
-				summary.UnusedFunctions++
-			case FindingUnusedMethod:
-				summary.UnusedMethods++
-			case FindingUnusedStruct:
-				summary.UnusedStructs++
-			case FindingUnusedInterface:
-				summary.UnusedInterfaces++
-			case FindingUnusedType:
-				summary.UnusedTypes++
-			case FindingUnusedVar:
-				summary.UnusedVars++
-			case FindingUnusedConst:
-				summary.UnusedConsts++
-			case FindingUnusedField:
-				summary.UnusedFields++
-			case FindingComplexity:
-				summary.ComplexityFindings++
-			case FindingDuplicateCode:
-				summary.DuplicateGroups++
-				summary.DuplicatedLines += finding.Lines
-			}
+			summary.addFinding(finding)
 		}
 	}
 
 	return summary
+}
+
+func (s *Summary) addFinding(finding Finding) {
+	s.Findings++
+	s.addCoverage(finding.Coverage)
+	s.addFindingType(finding)
+}
+
+func (s *Summary) addCoverage(coverage *Coverage) {
+	if coverage == nil {
+		return
+	}
+	if coverage.Covered {
+		s.CoveredFindings++
+		return
+	}
+	s.UncoveredFindings++
+}
+
+func (s *Summary) addFindingType(finding Finding) {
+	switch finding.Type {
+	case FindingUnusedDependency:
+		s.UnusedDependencies++
+	case FindingUnlistedDependency:
+		s.UnlistedDependencies++
+	case FindingTestOnlyDependency:
+		s.TestOnlyDependencies++
+	case FindingUnusedPackage:
+		s.UnusedPackages++
+	case FindingUnusedFile:
+		s.UnusedFiles++
+	case FindingUnusedFunction:
+		s.UnusedFunctions++
+	case FindingUnusedMethod:
+		s.UnusedMethods++
+	case FindingUnusedStruct:
+		s.UnusedStructs++
+	case FindingUnusedInterface:
+		s.UnusedInterfaces++
+	case FindingUnusedType:
+		s.UnusedTypes++
+	case FindingUnusedVar:
+		s.UnusedVars++
+	case FindingUnusedConst:
+		s.UnusedConsts++
+	case FindingUnusedField:
+		s.UnusedFields++
+	case FindingComplexity:
+		s.ComplexityFindings++
+	case FindingDuplicateCode:
+		s.DuplicateGroups++
+		s.DuplicatedLines += finding.Lines
+	}
 }
 
 func longestMatchingRequire(importPath string, requires []Require) (Require, bool) {
