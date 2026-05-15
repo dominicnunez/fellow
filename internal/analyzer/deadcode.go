@@ -1091,41 +1091,48 @@ func declarationUsed(pkg packageState, decl declaration, usage moduleUsage, refl
 
 	switch decl.Kind {
 	case declarationFunction, declarationStruct, declarationInterface, declarationType, declarationVar, declarationConst:
-		if decl.SideEffect {
-			return true
-		}
-		if _, ok := reflectiveStructs[decl.Name]; ok {
-			return true
-		}
-		if hasUseOutside(pkg.usedNames[decl.Name], decl) {
-			return true
-		}
-		if hasUseOutside(usage.packageSymbolUses[pkg.realImportPath][decl.Name], decl) {
-			return true
-		}
-		if _, ok := usage.dotImports[pkg.realImportPath]; ok && ast.IsExported(decl.Name) {
-			return true
-		}
+		return valueDeclarationUsed(pkg, decl, usage, reflectiveStructs)
 	case declarationMethod:
-		if _, ok := usage.interfaceMethods[decl.Name]; ok {
-			return true
-		}
-		if hasUseOutside(usage.selectorUses[decl.Name], decl) {
-			return true
-		}
+		return methodDeclarationUsed(decl, usage)
 	case declarationField:
-		if _, ok := reflectiveStructs[decl.Struct]; ok {
-			return true
-		}
-		if hasUseOutside(usage.selectorUses[decl.Name], decl) {
-			return true
-		}
-		if hasUseOutside(usage.fieldKeyUses[decl.Name], decl) {
-			return true
-		}
+		return fieldDeclarationUsed(decl, usage, reflectiveStructs)
 	}
 
 	return false
+}
+
+func valueDeclarationUsed(pkg packageState, decl declaration, usage moduleUsage, reflectiveStructs map[string]struct{}) bool {
+	if decl.SideEffect {
+		return true
+	}
+	if _, ok := reflectiveStructs[decl.Name]; ok {
+		return true
+	}
+	if hasUseOutside(pkg.usedNames[decl.Name], decl) {
+		return true
+	}
+	if hasUseOutside(usage.packageSymbolUses[pkg.realImportPath][decl.Name], decl) {
+		return true
+	}
+	_, dotImported := usage.dotImports[pkg.realImportPath]
+	return dotImported && ast.IsExported(decl.Name)
+}
+
+func methodDeclarationUsed(decl declaration, usage moduleUsage) bool {
+	if _, ok := usage.interfaceMethods[decl.Name]; ok {
+		return true
+	}
+	return hasUseOutside(usage.selectorUses[decl.Name], decl)
+}
+
+func fieldDeclarationUsed(decl declaration, usage moduleUsage, reflectiveStructs map[string]struct{}) bool {
+	if _, ok := reflectiveStructs[decl.Struct]; ok {
+		return true
+	}
+	if hasUseOutside(usage.selectorUses[decl.Name], decl) {
+		return true
+	}
+	return hasUseOutside(usage.fieldKeyUses[decl.Name], decl)
 }
 
 func typedDeclarationUsed(pkg packageState, decl declaration, usage moduleUsage, reflectiveStructs map[string]struct{}) bool {
