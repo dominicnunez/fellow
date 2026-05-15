@@ -15,40 +15,50 @@ func healthFindings(module moduleState, opts Options) []Finding {
 	var findings []Finding
 	for _, pkg := range module.packages {
 		for _, source := range pkg.files {
-			for _, decl := range source.file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-
-				cyclomatic, cognitive := functionComplexity(fn)
-				if cyclomatic <= maxCyclomatic && cognitive <= maxCognitive {
-					continue
-				}
-
-				line := source.fset.Position(fn.Name.Pos()).Line
-				finding := Finding{
-					Type:        FindingComplexity,
-					Package:     pkg.importPath,
-					ImportPath:  pkg.importPath,
-					Symbol:      fn.Name.Name,
-					File:        source.relPath,
-					Line:        line,
-					Fingerprint: "",
-					Metrics: Metrics{
-						Cyclomatic: cyclomatic,
-						Cognitive:  cognitive,
-					},
-				}
-				if fn.Recv != nil {
-					finding.Receiver = receiverTypeName(fn.Recv)
-				}
-				findings = append(findings, finding)
-			}
+			findings = append(findings, healthFindingsForSource(pkg, source, maxCyclomatic, maxCognitive)...)
 		}
 	}
 
 	return findings
+}
+
+func healthFindingsForSource(pkg packageState, source *sourceFile, maxCyclomatic int, maxCognitive int) []Finding {
+	findings := make([]Finding, 0)
+	for _, decl := range source.file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+
+		cyclomatic, cognitive := functionComplexity(fn)
+		if cyclomatic <= maxCyclomatic && cognitive <= maxCognitive {
+			continue
+		}
+		findings = append(findings, complexityFinding(pkg, source, fn, cyclomatic, cognitive))
+	}
+
+	return findings
+}
+
+func complexityFinding(pkg packageState, source *sourceFile, fn *ast.FuncDecl, cyclomatic int, cognitive int) Finding {
+	finding := Finding{
+		Type:        FindingComplexity,
+		Package:     pkg.importPath,
+		ImportPath:  pkg.importPath,
+		Symbol:      fn.Name.Name,
+		File:        source.relPath,
+		Line:        source.fset.Position(fn.Name.Pos()).Line,
+		Fingerprint: "",
+		Metrics: Metrics{
+			Cyclomatic: cyclomatic,
+			Cognitive:  cognitive,
+		},
+	}
+	if fn.Recv != nil {
+		finding.Receiver = receiverTypeName(fn.Recv)
+	}
+
+	return finding
 }
 
 func functionComplexity(fn *ast.FuncDecl) (int, int) {

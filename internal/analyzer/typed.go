@@ -79,71 +79,90 @@ func collectTypedDeclarations(root string, pkg *packages.Package, typedDecls map
 			case nil:
 				return true
 			case *ast.FuncDecl:
-				obj := pkg.TypesInfo.Defs[n.Name]
-				if obj == nil {
-					return false
-				}
-				kind := declarationFunction
-				receiver := ""
-				if n.Recv != nil {
-					kind = declarationMethod
-					receiver = receiverTypeName(n.Recv)
-				}
-				key := declarationKey{
-					Kind:     kind,
-					Name:     n.Name.Name,
-					Receiver: receiver,
-					File:     typedRelPath(root, pkg, n.Name.Pos()),
-					Line:     pkg.Fset.Position(n.Name.Pos()).Line,
-				}
-				typedDecls[key] = append(typedDecls[key], typedDeclaration{key: key, obj: obj})
+				collectTypedFuncDeclaration(root, pkg, n, typedDecls)
 				return false
 			case *ast.TypeSpec:
-				obj := pkg.TypesInfo.Defs[n.Name]
-				if obj == nil {
-					return true
-				}
-				kind := declarationType
-				switch n.Type.(type) {
-				case *ast.StructType:
-					kind = declarationStruct
-				case *ast.InterfaceType:
-					kind = declarationInterface
-				}
-				key := declarationKey{
-					Kind: kind,
-					Name: n.Name.Name,
-					File: typedRelPath(root, pkg, n.Name.Pos()),
-					Line: pkg.Fset.Position(n.Name.Pos()).Line,
-				}
-				typedDecls[key] = append(typedDecls[key], typedDeclaration{key: key, obj: obj})
-
-				structType, ok := n.Type.(*ast.StructType)
-				if !ok {
-					return true
-				}
-				for _, field := range structType.Fields.List {
-					for _, name := range field.Names {
-						fieldObj := pkg.TypesInfo.Defs[name]
-						if fieldObj == nil {
-							continue
-						}
-						fieldKey := declarationKey{
-							Kind:   declarationField,
-							Name:   name.Name,
-							Struct: n.Name.Name,
-							File:   typedRelPath(root, pkg, name.Pos()),
-							Line:   pkg.Fset.Position(name.Pos()).Line,
-						}
-						typedDecls[fieldKey] = append(typedDecls[fieldKey], typedDeclaration{key: fieldKey, obj: fieldObj})
-					}
-				}
+				collectTypedTypeDeclaration(root, pkg, n, typedDecls)
 				return true
 			}
 
 			return true
 		})
 	}
+}
+
+func collectTypedFuncDeclaration(root string, pkg *packages.Package, fn *ast.FuncDecl, typedDecls map[declarationKey][]typedDeclaration) {
+	obj := pkg.TypesInfo.Defs[fn.Name]
+	if obj == nil {
+		return
+	}
+	kind := declarationFunction
+	receiver := ""
+	if fn.Recv != nil {
+		kind = declarationMethod
+		receiver = receiverTypeName(fn.Recv)
+	}
+	key := declarationKey{
+		Kind:     kind,
+		Name:     fn.Name.Name,
+		Receiver: receiver,
+		File:     typedRelPath(root, pkg, fn.Name.Pos()),
+		Line:     pkg.Fset.Position(fn.Name.Pos()).Line,
+	}
+	typedDecls[key] = append(typedDecls[key], typedDeclaration{key: key, obj: obj})
+}
+
+func collectTypedTypeDeclaration(root string, pkg *packages.Package, spec *ast.TypeSpec, typedDecls map[declarationKey][]typedDeclaration) {
+	obj := pkg.TypesInfo.Defs[spec.Name]
+	if obj == nil {
+		return
+	}
+	key := declarationKey{
+		Kind: typedTypeDeclarationKind(spec.Type),
+		Name: spec.Name.Name,
+		File: typedRelPath(root, pkg, spec.Name.Pos()),
+		Line: pkg.Fset.Position(spec.Name.Pos()).Line,
+	}
+	typedDecls[key] = append(typedDecls[key], typedDeclaration{key: key, obj: obj})
+	collectTypedStructFields(root, pkg, spec, typedDecls)
+}
+
+func typedTypeDeclarationKind(expr ast.Expr) string {
+	switch expr.(type) {
+	case *ast.StructType:
+		return declarationStruct
+	case *ast.InterfaceType:
+		return declarationInterface
+	default:
+		return declarationType
+	}
+}
+
+func collectTypedStructFields(root string, pkg *packages.Package, spec *ast.TypeSpec, typedDecls map[declarationKey][]typedDeclaration) {
+	structType, ok := spec.Type.(*ast.StructType)
+	if !ok {
+		return
+	}
+	for _, field := range structType.Fields.List {
+		for _, name := range field.Names {
+			collectTypedStructField(root, pkg, spec.Name.Name, name, typedDecls)
+		}
+	}
+}
+
+func collectTypedStructField(root string, pkg *packages.Package, structName string, name *ast.Ident, typedDecls map[declarationKey][]typedDeclaration) {
+	fieldObj := pkg.TypesInfo.Defs[name]
+	if fieldObj == nil {
+		return
+	}
+	fieldKey := declarationKey{
+		Kind:   declarationField,
+		Name:   name.Name,
+		Struct: structName,
+		File:   typedRelPath(root, pkg, name.Pos()),
+		Line:   pkg.Fset.Position(name.Pos()).Line,
+	}
+	typedDecls[fieldKey] = append(typedDecls[fieldKey], typedDeclaration{key: fieldKey, obj: fieldObj})
 }
 
 func collectTypedValueDeclarations(root string, pkg *packages.Package, file *ast.File, typedDecls map[declarationKey][]typedDeclaration) {
