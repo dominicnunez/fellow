@@ -8,13 +8,13 @@ Provide a project-level configuration file for repeatable analyzer behavior.
 
 ## Users
 
-- Teams running `fellow` in CI.
+- Teams running `gallow` in CI.
 - Developers sharing local defaults.
 - Agents needing stable project policy.
 
 ## Requirements
 
-- Discover `.fellowrc.json` by default.
+- Discover `.gallowrc.json` by default.
 - Support `--config <path>`.
 - Configure rules, thresholds, ignore patterns, and output defaults.
 - Validate unknown fields and invalid values.

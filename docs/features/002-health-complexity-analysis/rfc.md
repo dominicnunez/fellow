@@ -8,7 +8,7 @@ Add maintainability analysis for Go functions and methods, including complexity 
 
 ## Problem
 
-Dead code is not the only review risk. Large or highly branched functions deserve attention even when they are used. `fellow` should help reviewers identify risky code paths and refactor candidates.
+Dead code is not the only review risk. Large or highly branched functions deserve attention even when they are used. `gallow` should help reviewers identify risky code paths and refactor candidates.
 
 ## Required Behavior
 

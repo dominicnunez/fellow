@@ -4,7 +4,7 @@ Status: Draft
 
 ## Goal
 
-Make `fellow` usable from editors and coding agents without scraping human output.
+Make `gallow` usable from editors and coding agents without scraping human output.
 
 ## Users
 

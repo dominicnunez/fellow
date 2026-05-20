@@ -4,7 +4,7 @@ Status: Draft
 
 ## Goal
 
-Provide a PR-friendly command that focuses `fellow` output on files touched by the current change set.
+Provide a PR-friendly command that focuses `gallow` output on files touched by the current change set.
 
 ## Users
 
@@ -14,7 +14,7 @@ Provide a PR-friendly command that focuses `fellow` output on files touched by t
 
 ## Requirements
 
-- Add `fellow audit`.
+- Add `gallow audit`.
 - Accept an explicit base ref.
 - Detect changed files from Git.
 - Filter findings to changed files.

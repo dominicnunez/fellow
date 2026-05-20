@@ -1,4 +1,4 @@
-module fellow
+module github.com/dominicnunez/go-fallow
 
 go 1.25.0
 

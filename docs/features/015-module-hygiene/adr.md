@@ -4,9 +4,9 @@ Status: Proposed
 
 ## Context
 
-Go module state is maintained by the Go command, especially `go mod tidy`. `fellow` should expose stale or risky module state in reports, but it should not mutate files during normal analysis. Mutation is covered separately by the gated auto-fix feature.
+Go module state is maintained by the Go command, especially `go mod tidy`. `gallow` should expose stale or risky module state in reports, but it should not mutate files during normal analysis. Mutation is covered separately by the gated auto-fix feature.
 
-Current dependency checks are based on direct requirements and imports. That catches the main Fallow-inspired dependency drift cases, but it does not explain all module hygiene concerns users encounter in CI:
+Current dependency checks are based on direct requirements and imports. That catches the main Fallow-style dependency drift cases, but it does not explain all module hygiene concerns users encounter in CI:
 
 - tidy would edit `go.mod` or `go.sum`;
 - a local replacement was accidentally committed;

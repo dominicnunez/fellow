@@ -4,7 +4,7 @@ Status: Proposed
 
 ## Context
 
-`fellow` currently detects dependency drift and dead code, but it does not identify repeated code blocks. Duplicate detection should be useful during review without requiring type checking or full compilation.
+`gallow` currently detects dependency drift and dead code, but it does not identify repeated code blocks. Duplicate detection should be useful during review without requiring type checking or full compilation.
 
 ## Decision
 

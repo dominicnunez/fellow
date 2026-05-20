@@ -794,7 +794,7 @@ func usesOnlyTests(uses []ImportUse) bool {
 
 func shouldSkipDir(name string) bool {
 	switch name {
-	case ".git", ".fellow", "node_modules", "vendor":
+	case ".git", ".gallow", "node_modules", "vendor":
 		return true
 	default:
 		return false

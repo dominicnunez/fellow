@@ -15,8 +15,8 @@ Define future product requirements for continuous local feedback while preventin
 ## Requirements
 
 - Do not implement without explicit user permission.
-- Keep normal `fellow` commands as single-run processes.
-- If approved later, add `fellow watch`.
+- Keep normal `gallow` commands as single-run processes.
+- If approved later, add `gallow watch`.
 - If approved later, watch `.go`, `go.mod`, and `go.sum` files.
 - If approved later, debounce rapid changes and exit cleanly on interrupt.
 

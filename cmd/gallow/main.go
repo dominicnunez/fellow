@@ -9,12 +9,12 @@ import (
 	"os/exec"
 	"strings"
 
-	"fellow/internal/analyzer"
-	"fellow/internal/settings"
+	"github.com/dominicnunez/go-fallow/internal/analyzer"
+	"github.com/dominicnunez/go-fallow/internal/settings"
 )
 
 const (
-	appName = "fellow"
+	appName = "gallow"
 	version = "0.1.0"
 
 	exitOK     = 0

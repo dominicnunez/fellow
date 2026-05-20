@@ -14,8 +14,8 @@ Findings are more useful when safe cleanup can be previewed and applied. Depende
 
 ## Required Behavior
 
-- Add `fellow fix --dry-run` to preview changes.
-- Add `fellow fix` to apply supported fixes.
+- Add `gallow fix --dry-run` to preview changes.
+- Add `gallow fix` to apply supported fixes.
 - Start with unused direct `require` removal from `go.mod`.
 - Run or recommend `go mod tidy` after dependency edits.
 - Emit machine-readable actions in JSON output.

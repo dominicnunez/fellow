@@ -4,7 +4,7 @@ Status: Draft
 
 ## Summary
 
-Add clone detection for Go source so `fellow` can report repeated logic across files and packages.
+Add clone detection for Go source so `gallow` can report repeated logic across files and packages.
 
 ## Problem
 

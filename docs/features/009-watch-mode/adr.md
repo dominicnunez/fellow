@@ -12,7 +12,7 @@ Do not implement watch mode without explicit user permission. Planning documents
 
 ## Consequences
 
-- Normal `fellow` commands remain single-run processes.
+- Normal `gallow` commands remain single-run processes.
 - Any future implementation must start with dependency and portability review.
 - Watch mode work requires a fresh approval checkpoint before code changes begin.
 

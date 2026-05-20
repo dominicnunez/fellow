@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"fellow/internal/analyzer"
+	"github.com/dominicnunez/go-fallow/internal/analyzer"
 )
 
 func TestFilterReportFilesKeepsDuplicateLocations(t *testing.T) {

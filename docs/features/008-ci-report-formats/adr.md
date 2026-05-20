@@ -4,7 +4,7 @@ Status: Proposed
 
 ## Context
 
-CI platforms can surface diagnostics inline when tools emit supported formats. `fellow` currently supports human and JSON output only.
+CI platforms can surface diagnostics inline when tools emit supported formats. `gallow` currently supports human and JSON output only.
 
 ## Decision
 

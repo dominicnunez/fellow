@@ -1,0 +1,12 @@
+{
+  "health": {
+    "maxCyclomatic": 17,
+    "maxCognitive": 25
+  },
+  "ignoreFindings": [
+    {
+      "type": "duplicate-code",
+      "file": "**/*_test.go"
+    }
+  ]
+}

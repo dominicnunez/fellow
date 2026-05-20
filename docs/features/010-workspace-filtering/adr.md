@@ -4,7 +4,7 @@ Status: Proposed
 
 ## Context
 
-Multi-module Go repos need scoped analysis without losing cross-module context. `fellow` already handles nested modules but does not fully model `go.work` selection.
+Multi-module Go repos need scoped analysis without losing cross-module context. `gallow` already handles nested modules but does not fully model `go.work` selection.
 
 ## Decision
 

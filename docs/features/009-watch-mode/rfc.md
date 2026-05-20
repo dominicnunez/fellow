@@ -14,7 +14,7 @@ Running the analyzer manually after each edit slows feedback. Watch mode gives d
 
 ## Required Behavior
 
-- Add `fellow watch`.
+- Add `gallow watch`.
 - Watch `.go`, `go.mod`, and `go.sum` files under the selected root.
 - Debounce rapid file changes.
 - Reuse config and CLI flags from normal analysis.

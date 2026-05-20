@@ -42,14 +42,14 @@ Implement the first low-risk module hygiene slice from RFC 015:
   - No new config fields expected for the first slice.
   - Existing `rules` and `ignoreFindings` should handle new finding types.
 
-- `cmd/fellow/main.go`
+- `cmd/gallow/main.go`
   - Add human output writers for `tidy-drift`, `local-replace`, and `tool-dependency`.
   - Verify JSON, SARIF, CodeClimate, GitLab Code Quality, and annotations work through generic finding serialization.
 
 - `internal/analyzer/analyzer_test.go`
   - Add fixtures for tidy drift, local replace, sibling module replace, Go tool directive usage, and `tools.go` usage.
 
-- `cmd/fellow/main_test.go`
+- `cmd/gallow/main_test.go`
   - Add or update serializer tests if new human output or CI formatting needs explicit coverage.
 
 - `README.md`
@@ -179,8 +179,8 @@ Run before committing implementation:
 go test ./...
 go vet ./...
 golangci-lint run
-go run ./cmd/fellow --root . --summary
-go run ./cmd/fellow audit --root . --base origin/main --summary
+go run ./cmd/gallow --root . --summary
+go run ./cmd/gallow audit --root . --base origin/main --summary
 ```
 
 ## Rollout Notes

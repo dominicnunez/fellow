@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-const DefaultConfigFile = ".fellowrc.json"
+const DefaultConfigFile = ".gallowrc.json"
 
 const (
 	RuleOff   = "off"

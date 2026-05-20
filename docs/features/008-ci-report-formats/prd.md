@@ -4,7 +4,7 @@ Status: Draft
 
 ## Goal
 
-Make `fellow` findings visible in CI review surfaces through standard report formats.
+Make `gallow` findings visible in CI review surfaces through standard report formats.
 
 ## Users
 

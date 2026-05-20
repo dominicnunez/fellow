@@ -4,7 +4,7 @@ Status: Draft
 
 ## Goal
 
-Make `fellow` report the highest-value Go module hygiene issues that go beyond import-to-require drift while keeping normal analysis read-only.
+Make `gallow` report the highest-value Go module hygiene issues that go beyond import-to-require drift while keeping normal analysis read-only.
 
 ## Users
 
@@ -34,7 +34,7 @@ Make `fellow` report the highest-value Go module hygiene issues that go beyond i
 
 ## User Stories
 
-- As a developer, I want `fellow` to tell me when `go mod tidy` would change files, so CI can catch stale module state.
+- As a developer, I want `gallow` to tell me when `go mod tidy` would change files, so CI can catch stale module state.
 - As a reviewer, I want local `replace` directives called out, so development overrides are not accidentally merged.
 - As a tool maintainer, I want tool dependencies to be recognized, so they are not misclassified as unused application dependencies.
 

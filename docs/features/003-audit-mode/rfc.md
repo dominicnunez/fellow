@@ -12,7 +12,7 @@ Full-repo findings are useful for cleanup, but they can overwhelm pull request r
 
 ## Required Behavior
 
-- Add `fellow audit` with a configurable base ref.
+- Add `gallow audit` with a configurable base ref.
 - Detect changed files using Git.
 - Run relevant analyses and filter findings to changed files.
 - Exit with pass, warn, or fail semantics suitable for CI.
@@ -32,7 +32,7 @@ Full-repo findings are useful for cleanup, but they can overwhelm pull request r
 
 ## Acceptance Criteria
 
-- A changed file with a new finding causes `fellow audit --fail-on-issues` to exit non-zero.
+- A changed file with a new finding causes `gallow audit --fail-on-issues` to exit non-zero.
 - Unchanged files are not shown in the default audit output.
 - JSON output includes base ref, changed files, and verdict.
 - Audit works when the working tree has unstaged changes.

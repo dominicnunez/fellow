@@ -48,8 +48,8 @@ const (
 	scanCallName          = "Scan"
 	structScanCallName    = "StructScan"
 
-	suppressFileToken     = "fellow-ignore-file"
-	suppressNextLineToken = "fellow-ignore-next-line"
+	suppressFileToken     = "gallow-ignore-file"
+	suppressNextLineToken = "gallow-ignore-next-line"
 	suppressAllRules      = "*"
 )
 
@@ -134,24 +134,13 @@ func scanModulePackages(root string, module moduleState, moduleDirs map[string]s
 		}
 
 		if d.IsDir() {
-			if path != module.absDir {
-				if shouldSkipDir(d.Name()) {
-					return filepath.SkipDir
-				}
-				if _, ok := moduleDirs[path]; ok {
-					return filepath.SkipDir
-				}
+			if shouldSkipPackageDir(path, module.absDir, moduleDirs) {
+				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if !strings.HasSuffix(d.Name(), goFileSuffix) {
-			return nil
-		}
-		if !opts.IncludeTests && strings.HasSuffix(d.Name(), testFileSuffix) {
-			return nil
-		}
-		if !matchesBuildContext(path, opts.BuildTags) && !isToolSourceFile(path) {
+		if !shouldScanSourceFile(path, d.Name(), opts) {
 			return nil
 		}
 
@@ -195,6 +184,28 @@ func scanModulePackages(root string, module moduleState, moduleDirs map[string]s
 	sortImportUses(imports)
 
 	return packages, imports, nil
+}
+
+func shouldSkipPackageDir(path string, moduleDir string, moduleDirs map[string]struct{}) bool {
+	if path == moduleDir {
+		return false
+	}
+	if shouldSkipDir(filepath.Base(path)) {
+		return true
+	}
+	_, nestedModule := moduleDirs[path]
+	return nestedModule
+}
+
+func shouldScanSourceFile(path string, name string, opts Options) bool {
+	if !strings.HasSuffix(name, goFileSuffix) {
+		return false
+	}
+	if !opts.IncludeTests && strings.HasSuffix(name, testFileSuffix) {
+		return false
+	}
+
+	return matchesBuildContext(path, opts.BuildTags) || isToolSourceFile(path)
 }
 
 func matchesBuildContext(path string, buildTags []string) bool {
@@ -628,38 +639,58 @@ func collectUses(pkg *packageState, source *sourceFile, aliases map[string]strin
 		case *ast.ImportSpec:
 			return false
 		case *ast.CallExpr:
-			if !isReflectiveCall(n.Fun) {
-				return true
-			}
-			for _, arg := range n.Args {
-				if typeName := reflectiveArgTypeName(source, arg, typedVars); typeName != "" {
-					pkg.reflectiveStructs[typeName] = append(pkg.reflectiveStructs[typeName], useAt(source, arg.Pos()))
-				}
-			}
+			collectReflectiveStructUses(pkg, source, n, typedVars)
 		case *ast.SelectorExpr:
-			use := useAt(source, n.Sel.Pos())
-			pkg.selectorNames[n.Sel.Name] = append(pkg.selectorNames[n.Sel.Name], use)
-			if ident, ok := n.X.(*ast.Ident); ok {
-				if importPath := aliases[ident.Name]; importPath != "" {
-					addPackageSymbolUse(pkg.usedPackageSymbols, importPath, n.Sel.Name, use)
-				}
-			}
+			collectSelectorUse(pkg, source, aliases, n)
 		case *ast.KeyValueExpr:
-			if ident, ok := n.Key.(*ast.Ident); ok {
-				pkg.fieldKeys[ident.Name] = append(pkg.fieldKeys[ident.Name], useAt(source, ident.Pos()))
-			}
+			collectFieldKeyUse(pkg, source, n)
 		case *ast.Ident:
-			if n.Name == blankImportName {
-				return true
-			}
-			if _, ignored := ignoredPositions[n.Pos()]; ignored {
-				return true
-			}
-			pkg.usedNames[n.Name] = append(pkg.usedNames[n.Name], useAt(source, n.Pos()))
+			collectIdentUse(pkg, source, n, ignoredPositions)
 		}
 
 		return true
 	})
+}
+
+func collectReflectiveStructUses(pkg *packageState, source *sourceFile, call *ast.CallExpr, typedVars map[string][]typedVariable) {
+	if !isReflectiveCall(call.Fun) {
+		return
+	}
+	for _, arg := range call.Args {
+		if typeName := reflectiveArgTypeName(source, arg, typedVars); typeName != "" {
+			pkg.reflectiveStructs[typeName] = append(pkg.reflectiveStructs[typeName], useAt(source, arg.Pos()))
+		}
+	}
+}
+
+func collectSelectorUse(pkg *packageState, source *sourceFile, aliases map[string]string, selector *ast.SelectorExpr) {
+	use := useAt(source, selector.Sel.Pos())
+	pkg.selectorNames[selector.Sel.Name] = append(pkg.selectorNames[selector.Sel.Name], use)
+	ident, ok := selector.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	if importPath := aliases[ident.Name]; importPath != "" {
+		addPackageSymbolUse(pkg.usedPackageSymbols, importPath, selector.Sel.Name, use)
+	}
+}
+
+func collectFieldKeyUse(pkg *packageState, source *sourceFile, field *ast.KeyValueExpr) {
+	ident, ok := field.Key.(*ast.Ident)
+	if !ok {
+		return
+	}
+	pkg.fieldKeys[ident.Name] = append(pkg.fieldKeys[ident.Name], useAt(source, ident.Pos()))
+}
+
+func collectIdentUse(pkg *packageState, source *sourceFile, ident *ast.Ident, ignoredPositions map[token.Pos]struct{}) {
+	if ident.Name == blankImportName {
+		return
+	}
+	if _, ignored := ignoredPositions[ident.Pos()]; ignored {
+		return
+	}
+	pkg.usedNames[ident.Name] = append(pkg.usedNames[ident.Name], useAt(source, ident.Pos()))
 }
 
 func collectTypedVariables(source *sourceFile) map[string][]typedVariable {

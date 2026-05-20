@@ -4,12 +4,12 @@ Status: Draft
 
 ## Goal
 
-Allow teams to adopt `fellow` without failing CI on known existing findings.
+Allow teams to adopt `gallow` without failing CI on known existing findings.
 
 ## Users
 
 - CI maintainers.
-- Developers working in legacy repos.
+- Developers working in existing repos.
 - Teams planning staged cleanup.
 
 ## Requirements

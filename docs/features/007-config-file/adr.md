@@ -8,7 +8,7 @@ CLI flags are useful for one-off runs, but teams need shared policy for CI and l
 
 ## Decision
 
-Introduce `.fellowrc.json` as the first config format. CLI flags override config values. Unknown fields should fail validation so mistakes are visible.
+Introduce `.gallowrc.json` as the default config format. CLI flags override config values. Unknown fields should fail validation so mistakes are visible.
 
 ## Consequences
 

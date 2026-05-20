@@ -4,7 +4,7 @@ Status: Proposed
 
 ## Context
 
-Used code can still be risky when functions are large, deeply nested, or highly branched. `fellow` needs a static health surface that works without coverage or runtime data.
+Used code can still be risky when functions are large, deeply nested, or highly branched. `gallow` needs a static health surface that works without coverage or runtime data.
 
 ## Decision
 

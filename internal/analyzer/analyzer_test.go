@@ -656,7 +656,7 @@ go 1.25
 
 func main() {}
 
-// fellow-ignore-next-line unused-function
+// gallow-ignore-next-line unused-function
 func Dead() {}
 `)
 
@@ -678,7 +678,7 @@ func TestAnalyzeAppliesFileSuppressions(t *testing.T) {
 
 go 1.25
 `)
-	writeFile(t, root, "main.go", `// fellow-ignore-file
+	writeFile(t, root, "main.go", `// gallow-ignore-file
 package main
 
 func main() {}

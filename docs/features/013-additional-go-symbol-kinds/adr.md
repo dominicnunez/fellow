@@ -4,7 +4,7 @@ Status: Proposed
 
 ## Context
 
-`fellow` currently reports several declaration kinds but omits interfaces, type aliases, package vars, consts, and enum-like groups.
+`gallow` currently reports several declaration kinds but omits interfaces, type aliases, package vars, consts, and enum-like groups.
 
 ## Decision
 

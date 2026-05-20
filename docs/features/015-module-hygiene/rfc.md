@@ -8,7 +8,7 @@ Add a low-risk, read-only Go module hygiene slice that reports tidy drift, suspi
 
 ## Problem
 
-`fellow` already reports unused direct requirements, unlisted imports, test-only dependencies, and nested module drift. Go module maintenance has a few high-value hygiene issues that are not captured by import-to-require comparison alone:
+`gallow` already reports unused direct requirements, unlisted imports, test-only dependencies, and nested module drift. Go module maintenance has a few high-value hygiene issues that are not captured by import-to-require comparison alone:
 
 - `go mod tidy` may change `go.mod` or `go.sum`.
 - `replace` directives may point at local development paths that should not be merged accidentally.
@@ -37,7 +37,7 @@ These issues should be visible in CI and audit reports, but normal analysis must
 - Analysis must never write `go.mod` or `go.sum`.
 - Do not run `go get`, `go mod tidy` without `-diff`, or any command that mutates module files.
 - Do not add dependency allow/block policy; that belongs to dedicated policy tools.
-- Do not duplicate `go mod tidy` as an editor. `fellow` reports drift and can recommend the command.
+- Do not duplicate `go mod tidy` as an editor. `gallow` reports drift and can recommend the command.
 - Avoid network-dependent behavior where possible; tidy failures caused by unavailable downloads should be reported as analysis errors, not guessed hygiene findings.
 - Findings must identify the module, file, line, and directive or dependency involved.
 

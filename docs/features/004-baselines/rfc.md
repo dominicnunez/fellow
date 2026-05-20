@@ -4,7 +4,7 @@ Status: Draft
 
 ## Summary
 
-Add baseline files so teams can adopt `fellow` incrementally and fail only on new or regressed findings.
+Add baseline files so teams can adopt `gallow` incrementally and fail only on new or regressed findings.
 
 ## Problem
 

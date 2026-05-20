@@ -14,8 +14,8 @@ Define future product requirements for safe automatic fixes while preventing acc
 ## Requirements
 
 - Do not implement without explicit user permission.
-- Keep normal `fellow` commands read-only.
-- If approved later, start with `fellow fix --dry-run`.
+- Keep normal `gallow` commands read-only.
+- If approved later, start with `gallow fix --dry-run`.
 - If approved later, represent supported fixes as JSON actions.
 
 ## Non-Functional Requirements

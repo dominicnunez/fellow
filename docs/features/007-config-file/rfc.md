@@ -12,7 +12,7 @@ CLI flags are sufficient for one-off usage, but teams need repeatable project po
 
 ## Required Behavior
 
-- Discover `.fellowrc.json` from the project root by default.
+- Discover `.gallowrc.json` from the project root by default.
 - Support `--config <path>` to load an explicit file.
 - Configure rule severity, ignore patterns, complexity thresholds, and output defaults.
 - Validate unknown fields and invalid values with clear errors.
