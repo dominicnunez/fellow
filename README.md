@@ -152,6 +152,26 @@ Suggested actions are currently documented by finding type rather than emitted a
 | `complexity` | Split or simplify the function if the threshold reflects your team policy. |
 | `duplicate-code` | Consider extracting shared logic when the duplicated block is intentional code, not test setup. |
 
+## Finding Types
+
+Gallow uses stable finding type IDs as SARIF `ruleId` values:
+
+| Rule ID | Meaning |
+| --- | --- |
+| `unused-dependency` | Direct module requirement appears unused. |
+| `unlisted-dependency` | External import has no matching direct requirement. |
+| `test-only-dependency` | Dependency is only used from tests. |
+| `unused-package` | Internal package is unreachable. |
+| `unused-file` | Go file declarations appear unused. |
+| `unused-function`, `unused-method` | Function or method appears unused. |
+| `unused-struct`, `unused-interface`, `unused-type` | Type declaration appears unused. |
+| `unused-var`, `unused-const`, `unused-field` | Package value or field appears unused. |
+| `complexity` | Function exceeds configured complexity thresholds. |
+| `duplicate-code` | Repeated Go code window was found. |
+| `tidy-drift` | `go mod tidy -diff` would change module files. |
+| `local-replace` | Local `replace` does not point at a discovered sibling module. |
+| `tool-dependency` | Go `tool` directive has no matching requirement. |
+
 ## CI Usage
 
 Gallow supports `json`, `sarif`, `codeclimate`, `gitlab-codequality`, and GitHub `annotations` output.
@@ -173,6 +193,39 @@ Coverage profiles from `go test -coverprofile=coverage.out ./...` can annotate m
 ```bash
 gallow --coverage coverage.out --format json
 ```
+
+## GitHub Code Scanning
+
+Use SARIF upload for GitHub's Code Scanning UI. Generate SARIF without `--ci` so alerts can be uploaded even when findings exist. Keep `--ci` as a separate build gate when you want findings to fail the workflow.
+
+```yaml
+name: Code Scanning
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  gallow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/gallow --root . --format sarif > gallow.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: gallow.sarif
+          category: gallow
+```
+
+Gallow's SARIF output includes rule metadata, stable rule IDs, deterministic SARIF levels, related locations for multi-location findings, and Gallow fingerprints for alert continuity.
 
 ## Baselines And Suppressions
 

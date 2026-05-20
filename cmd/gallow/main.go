@@ -29,6 +29,17 @@ const (
 	formatAnnotations       = "annotations"
 )
 
+const (
+	gallowRepositoryURL  = "https://github.com/dominicnunez/gallow"
+	sarifSchema          = "https://json.schemastore.org/sarif-2.1.0.json"
+	sarifVersion         = "2.1.0"
+	sarifHelpURI         = gallowRepositoryURL + "#finding-types"
+	sarifFingerprintKey  = "gallowFingerprintV1"
+	sarifLevelNote       = "note"
+	sarifLevelWarning    = "warning"
+	relatedLocationStart = 1
+)
+
 type cliOptions struct {
 	command          string
 	root             string
@@ -72,6 +83,181 @@ var humanFindingWriters = map[string]humanFindingWriter{
 	analyzer.FindingTidyDrift:          writeTidyDriftFinding,
 	analyzer.FindingLocalReplace:       writeLocalReplaceFinding,
 	analyzer.FindingToolDependency:     writeToolDependencyFinding,
+}
+
+type sarifRuleDefinition struct {
+	id               string
+	name             string
+	shortDescription string
+	fullDescription  string
+	help             string
+	level            string
+	tags             []string
+}
+
+var sarifRuleDefinitions = []sarifRuleDefinition{
+	{
+		id:               analyzer.FindingUnusedDependency,
+		name:             "Unused dependency",
+		shortDescription: "A direct Go module requirement is unused.",
+		fullDescription:  "Gallow found a direct require entry in go.mod with no matching imports in the analyzed module.",
+		help:             "Remove the requirement or keep it only if it is intentionally retained.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
+	{
+		id:               analyzer.FindingUnlistedDependency,
+		name:             "Unlisted dependency",
+		shortDescription: "An external import is missing from go.mod.",
+		fullDescription:  "Gallow found an external import without a matching direct Go module requirement.",
+		help:             "Add the dependency with go get or remove the import.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
+	{
+		id:               analyzer.FindingTestOnlyDependency,
+		name:             "Test-only dependency",
+		shortDescription: "A dependency is only used by tests.",
+		fullDescription:  "Gallow found a direct requirement whose imports appear only in test files.",
+		help:             "Confirm the dependency belongs in the module contract or move usage/configuration to a test-only pattern.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
+	{
+		id:               analyzer.FindingUnusedPackage,
+		name:             "Unused package",
+		shortDescription: "An internal package is not reachable.",
+		fullDescription:  "Gallow found an internal package that is not reachable from module roots, main packages, or tests.",
+		help:             "Remove the package or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedFile,
+		name:             "Unused file",
+		shortDescription: "A Go source file appears unused.",
+		fullDescription:  "Gallow found a Go file whose declarations are all unused by reachable code.",
+		help:             "Remove the file or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedFunction,
+		name:             "Unused function",
+		shortDescription: "A function appears unused.",
+		fullDescription:  "Gallow found a function declaration that is not referenced by reachable code.",
+		help:             "Remove the function or add a gallow-ignore suppression if it is intentionally called indirectly.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedMethod,
+		name:             "Unused method",
+		shortDescription: "A method appears unused.",
+		fullDescription:  "Gallow found a method declaration that is not referenced by reachable code or interface usage.",
+		help:             "Remove the method or add a gallow-ignore suppression if it is intentionally called indirectly.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedStruct,
+		name:             "Unused struct",
+		shortDescription: "A struct type appears unused.",
+		fullDescription:  "Gallow found a struct declaration that is not referenced by reachable code.",
+		help:             "Remove the struct or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedInterface,
+		name:             "Unused interface",
+		shortDescription: "An interface type appears unused.",
+		fullDescription:  "Gallow found an interface declaration that is not referenced by reachable code.",
+		help:             "Remove the interface or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedType,
+		name:             "Unused type",
+		shortDescription: "A type declaration appears unused.",
+		fullDescription:  "Gallow found a type declaration that is not referenced by reachable code.",
+		help:             "Remove the type or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedVar,
+		name:             "Unused variable",
+		shortDescription: "A package-level variable appears unused.",
+		fullDescription:  "Gallow found a package-level variable that is not referenced by reachable code.",
+		help:             "Remove the variable or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedConst,
+		name:             "Unused constant",
+		shortDescription: "A package-level constant appears unused.",
+		fullDescription:  "Gallow found a package-level constant that is not referenced by reachable code.",
+		help:             "Remove the constant or add an intentional reachable use.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingUnusedField,
+		name:             "Unused field",
+		shortDescription: "A struct field appears unused.",
+		fullDescription:  "Gallow found a struct field that is not referenced by reachable code.",
+		help:             "Remove the field or add an intentional reachable use. Gallow is conservative around tagged fields and common reflection patterns.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dead-code"},
+	},
+	{
+		id:               analyzer.FindingComplexity,
+		name:             "Complex function",
+		shortDescription: "A function exceeds configured complexity thresholds.",
+		fullDescription:  "Gallow found a function or method whose cyclomatic or cognitive complexity exceeds the configured threshold.",
+		help:             "Split or simplify the function if the threshold reflects your team's policy.",
+		level:            sarifLevelNote,
+		tags:             []string{"maintainability"},
+	},
+	{
+		id:               analyzer.FindingDuplicateCode,
+		name:             "Duplicate code",
+		shortDescription: "A repeated Go code window was found.",
+		fullDescription:  "Gallow found a duplicated code window across Go source files.",
+		help:             "Consider extracting shared logic when the duplicated block is intentional production code rather than setup or fixtures.",
+		level:            sarifLevelNote,
+		tags:             []string{"maintainability"},
+	},
+	{
+		id:               analyzer.FindingTidyDrift,
+		name:             "Go mod tidy drift",
+		shortDescription: "go mod tidy would update module files.",
+		fullDescription:  "Gallow ran go mod tidy -diff and found pending go.mod or go.sum changes.",
+		help:             "Run go mod tidy and review the diff.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
+	{
+		id:               analyzer.FindingLocalReplace,
+		name:             "Suspicious local replace",
+		shortDescription: "A local replace directive does not point at a discovered sibling module.",
+		fullDescription:  "Gallow found a local replace directive whose target is not one of the Go modules discovered in the scanned repository.",
+		help:             "Remove the local replace or point it at a checked-in sibling module.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
+	{
+		id:               analyzer.FindingToolDependency,
+		name:             "Unresolved tool dependency",
+		shortDescription: "A tool directive has no matching requirement.",
+		fullDescription:  "Gallow found a Go tool directive that is not backed by a matching module requirement.",
+		help:             "Add the requirement or remove the tool directive.",
+		level:            sarifLevelWarning,
+		tags:             []string{"dependency", "module-hygiene"},
+	},
 }
 
 func main() {
@@ -453,57 +639,281 @@ func writeJSON(w io.Writer, report *analyzer.Report) error {
 	return enc.Encode(report)
 }
 
+type sarifMessage struct {
+	Text string `json:"text"`
+}
+
+type sarifArtifactLocation struct {
+	URI string `json:"uri"`
+}
+
+type sarifRegion struct {
+	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine,omitempty"`
+}
+
+type sarifPhysicalLocation struct {
+	ArtifactLocation sarifArtifactLocation `json:"artifactLocation"`
+	Region           sarifRegion           `json:"region"`
+}
+
+type sarifLocation struct {
+	PhysicalLocation sarifPhysicalLocation `json:"physicalLocation"`
+}
+
+type sarifRelatedLocation struct {
+	ID               int                   `json:"id"`
+	PhysicalLocation sarifPhysicalLocation `json:"physicalLocation"`
+	Message          sarifMessage          `json:"message"`
+}
+
+type sarifRuleProperties struct {
+	Tags []string `json:"tags,omitempty"`
+}
+
+type sarifRule struct {
+	ID               string              `json:"id"`
+	Name             string              `json:"name"`
+	ShortDescription sarifMessage        `json:"shortDescription"`
+	FullDescription  sarifMessage        `json:"fullDescription"`
+	Help             sarifMessage        `json:"help"`
+	HelpURI          string              `json:"helpUri"`
+	Properties       sarifRuleProperties `json:"properties,omitempty"`
+}
+
+type sarifDriver struct {
+	Name            string      `json:"name"`
+	InformationURI  string      `json:"informationUri"`
+	SemanticVersion string      `json:"semanticVersion"`
+	Rules           []sarifRule `json:"rules"`
+}
+
+type sarifTool struct {
+	Driver sarifDriver `json:"driver"`
+}
+
+type sarifAutomationDetails struct {
+	ID string `json:"id"`
+}
+
+type sarifResult struct {
+	RuleID              string                 `json:"ruleId"`
+	RuleIndex           *int                   `json:"ruleIndex,omitempty"`
+	Level               string                 `json:"level"`
+	Message             sarifMessage           `json:"message"`
+	Locations           []sarifLocation        `json:"locations"`
+	RelatedLocations    []sarifRelatedLocation `json:"relatedLocations,omitempty"`
+	Fingerprints        map[string]string      `json:"fingerprints,omitempty"`
+	PartialFingerprints map[string]string      `json:"partialFingerprints,omitempty"`
+}
+
+type sarifRun struct {
+	Tool              sarifTool              `json:"tool"`
+	AutomationDetails sarifAutomationDetails `json:"automationDetails"`
+	Results           []sarifResult          `json:"results"`
+}
+
+type sarifLog struct {
+	Version string     `json:"version"`
+	Schema  string     `json:"$schema"`
+	Runs    []sarifRun `json:"runs"`
+}
+
 func writeSARIF(w io.Writer, report *analyzer.Report) error {
-	type sarifLocation struct {
-		PhysicalLocation struct {
-			ArtifactLocation struct {
-				URI string `json:"uri"`
-			} `json:"artifactLocation"`
-			Region struct {
-				StartLine int `json:"startLine"`
-			} `json:"region"`
-		} `json:"physicalLocation"`
-	}
-	type sarifResult struct {
-		RuleID    string            `json:"ruleId"`
-		Level     string            `json:"level"`
-		Message   map[string]string `json:"message"`
-		Locations []sarifLocation   `json:"locations"`
-	}
-	type sarifRun struct {
-		Tool struct {
-			Driver struct {
-				Name string `json:"name"`
-			} `json:"driver"`
-		} `json:"tool"`
-		Results []sarifResult `json:"results"`
-	}
-	output := struct {
-		Version string     `json:"version"`
-		Schema  string     `json:"$schema"`
-		Runs    []sarifRun `json:"runs"`
-	}{
-		Version: "2.1.0",
-		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
-		Runs:    []sarifRun{{}},
-	}
-	output.Runs[0].Tool.Driver.Name = appName
-	output.Runs[0].Results = []sarifResult{}
-	for _, finding := range allFindings(report) {
-		var loc sarifLocation
-		loc.PhysicalLocation.ArtifactLocation.URI = finding.File
-		loc.PhysicalLocation.Region.StartLine = finding.Line
-		output.Runs[0].Results = append(output.Runs[0].Results, sarifResult{
-			RuleID:    finding.Type,
-			Level:     "warning",
-			Message:   map[string]string{"text": findingMessage(finding)},
-			Locations: []sarifLocation{loc},
-		})
+	rules := sarifRules()
+	ruleIndexes := sarifRuleIndexes(rules)
+	output := sarifLog{
+		Version: sarifVersion,
+		Schema:  sarifSchema,
+		Runs: []sarifRun{{
+			Tool: sarifTool{Driver: sarifDriver{
+				Name:            appName,
+				InformationURI:  gallowRepositoryURL,
+				SemanticVersion: version,
+				Rules:           rules,
+			}},
+			AutomationDetails: sarifAutomationDetails{ID: appName},
+			Results:           sarifResults(report, ruleIndexes),
+		}},
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(output)
+}
+
+func sarifRules() []sarifRule {
+	rules := make([]sarifRule, 0, len(sarifRuleDefinitions))
+	for _, definition := range sarifRuleDefinitions {
+		tags := append([]string{appName}, definition.tags...)
+		rules = append(rules, sarifRule{
+			ID:               definition.id,
+			Name:             definition.name,
+			ShortDescription: sarifMessage{Text: definition.shortDescription},
+			FullDescription:  sarifMessage{Text: definition.fullDescription},
+			Help:             sarifMessage{Text: definition.help},
+			HelpURI:          sarifHelpURI,
+			Properties:       sarifRuleProperties{Tags: tags},
+		})
+	}
+
+	return rules
+}
+
+func sarifRuleIndexes(rules []sarifRule) map[string]int {
+	indexes := make(map[string]int, len(rules))
+	for i, rule := range rules {
+		indexes[rule.ID] = i
+	}
+
+	return indexes
+}
+
+func sarifResults(report *analyzer.Report, ruleIndexes map[string]int) []sarifResult {
+	findings := allFindings(report)
+	results := make([]sarifResult, 0, len(findings))
+	for _, finding := range findings {
+		result := sarifResult{
+			RuleID:              finding.Type,
+			RuleIndex:           sarifRuleIndex(finding.Type, ruleIndexes),
+			Level:               sarifLevel(finding.Type),
+			Message:             sarifMessage{Text: sarifFindingMessage(finding)},
+			Locations:           []sarifLocation{sarifPrimaryLocation(finding)},
+			RelatedLocations:    sarifRelatedLocations(finding),
+			Fingerprints:        sarifFingerprints(finding),
+			PartialFingerprints: sarifFingerprints(finding),
+		}
+		results = append(results, result)
+	}
+
+	return results
+}
+
+func sarifRuleIndex(ruleID string, indexes map[string]int) *int {
+	index, ok := indexes[ruleID]
+	if !ok {
+		return nil
+	}
+
+	return &index
+}
+
+func sarifLevel(ruleID string) string {
+	for _, definition := range sarifRuleDefinitions {
+		if definition.id == ruleID {
+			return definition.level
+		}
+	}
+
+	return sarifLevelWarning
+}
+
+func sarifPrimaryLocation(finding analyzer.Finding) sarifLocation {
+	endLine := finding.Line
+	for _, location := range finding.Locations {
+		if location.File == finding.File && location.StartLine == finding.Line {
+			endLine = location.EndLine
+			break
+		}
+	}
+
+	return sarifLocation{PhysicalLocation: sarifPhysicalLocationForRange(finding.File, finding.Line, endLine)}
+}
+
+func sarifRelatedLocations(finding analyzer.Finding) []sarifRelatedLocation {
+	if len(finding.Locations) == 0 {
+		return nil
+	}
+
+	related := make([]sarifRelatedLocation, 0, len(finding.Locations))
+	for i, location := range finding.Locations {
+		related = append(related, sarifRelatedLocation{
+			ID:               relatedLocationStart + i,
+			PhysicalLocation: sarifPhysicalLocationForRange(location.File, location.StartLine, location.EndLine),
+			Message:          sarifMessage{Text: fmt.Sprintf("Related location for %s", finding.Type)},
+		})
+	}
+
+	return related
+}
+
+func sarifPhysicalLocationForRange(file string, startLine int, endLine int) sarifPhysicalLocation {
+	if startLine <= 0 {
+		startLine = 1
+	}
+	if endLine < startLine {
+		endLine = startLine
+	}
+
+	return sarifPhysicalLocation{
+		ArtifactLocation: sarifArtifactLocation{URI: filepathToURI(file)},
+		Region: sarifRegion{
+			StartLine: startLine,
+			EndLine:   endLine,
+		},
+	}
+}
+
+func filepathToURI(file string) string {
+	return strings.TrimPrefix(strings.ReplaceAll(file, "\\", "/"), "./")
+}
+
+func sarifFingerprints(finding analyzer.Finding) map[string]string {
+	if finding.Fingerprint == "" {
+		return nil
+	}
+
+	return map[string]string{sarifFingerprintKey: finding.Fingerprint}
+}
+
+func sarifFindingMessage(finding analyzer.Finding) string {
+	subject := findingSubject(finding)
+	switch finding.Type {
+	case analyzer.FindingUnusedDependency:
+		return fmt.Sprintf("Dependency %s is declared but not imported by reachable code. Remove the requirement or document why it must stay.", subject)
+	case analyzer.FindingUnlistedDependency:
+		return fmt.Sprintf("Import %s is used without a matching direct module requirement. Add it with go get or remove the import.", subject)
+	case analyzer.FindingTestOnlyDependency:
+		return fmt.Sprintf("Dependency %s is only used by tests. Confirm whether it belongs in the main module contract.", subject)
+	case analyzer.FindingUnusedPackage:
+		return fmt.Sprintf("Package %s is not reachable from module roots, main packages, or tests. Remove it or add an intentional reachable use.", subject)
+	case analyzer.FindingUnusedFile:
+		return "This file's declarations appear unused by reachable code. Remove it or add an intentional reachable use."
+	case analyzer.FindingUnusedFunction, analyzer.FindingUnusedMethod, analyzer.FindingUnusedStruct, analyzer.FindingUnusedInterface, analyzer.FindingUnusedType, analyzer.FindingUnusedVar, analyzer.FindingUnusedConst, analyzer.FindingUnusedField:
+		return fmt.Sprintf("%s appears unused by reachable code. Remove it or add a gallow-ignore suppression if it is intentionally used indirectly.", subject)
+	case analyzer.FindingComplexity:
+		return fmt.Sprintf("%s exceeds configured complexity thresholds (cyclomatic %d, cognitive %d). Split or simplify it if the threshold reflects your team policy.", subject, finding.Metrics.Cyclomatic, finding.Metrics.Cognitive)
+	case analyzer.FindingDuplicateCode:
+		return fmt.Sprintf("Duplicate code group %s spans %d duplicated lines. Consider extracting shared logic if this is production code.", subject, finding.Lines)
+	case analyzer.FindingTidyDrift:
+		return "go mod tidy -diff reported module drift. Run go mod tidy and review the resulting go.mod or go.sum changes."
+	case analyzer.FindingLocalReplace:
+		return fmt.Sprintf("Local replace %s does not point at a discovered sibling module. Remove it or check in the sibling module.", subject)
+	case analyzer.FindingToolDependency:
+		return fmt.Sprintf("Tool dependency %s has no matching module requirement. Add the requirement or remove the tool directive.", subject)
+	default:
+		return findingMessage(finding)
+	}
+}
+
+func findingSubject(finding analyzer.Finding) string {
+	if finding.Symbol != "" {
+		return finding.Symbol
+	}
+	if finding.Module != "" {
+		if finding.Version != "" {
+			return finding.Module + " " + finding.Version
+		}
+		return finding.Module
+	}
+	if finding.ImportPath != "" {
+		return finding.ImportPath
+	}
+	if finding.File != "" {
+		return finding.File
+	}
+
+	return finding.Type
 }
 
 func writeCodeClimate(w io.Writer, report *analyzer.Report) error {
