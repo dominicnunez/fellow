@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/dominicnunez/go-fallow/internal/analyzer"
-	"github.com/dominicnunez/go-fallow/internal/settings"
+	"github.com/dominicnunez/gallow/internal/analyzer"
+	"github.com/dominicnunez/gallow/internal/settings"
 )
 
 const (

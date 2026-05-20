@@ -1,4 +1,4 @@
-module github.com/dominicnunez/go-fallow
+module github.com/dominicnunez/gallow
 
 go 1.25.0
 

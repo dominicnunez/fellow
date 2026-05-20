@@ -2,9 +2,9 @@
 
 Fallow-style codebase intelligence for Go.
 
-[![CI](https://github.com/dominicnunez/go-fallow/actions/workflows/ci.yml/badge.svg)](https://github.com/dominicnunez/go-fallow/actions/workflows/ci.yml)
-![Go version](https://img.shields.io/github/go-mod/go-version/dominicnunez/go-fallow)
-![License](https://img.shields.io/github/license/dominicnunez/go-fallow)
+[![CI](https://github.com/dominicnunez/gallow/actions/workflows/ci.yml/badge.svg)](https://github.com/dominicnunez/gallow/actions/workflows/ci.yml)
+![Go version](https://img.shields.io/github/go-mod/go-version/dominicnunez/gallow)
+![License](https://img.shields.io/github/license/dominicnunez/gallow)
 
 Gallow is a Fallow-style codebase intelligence tool for Go. It analyzes Go modules for dependency drift, unused code, module hygiene issues, complexity hotspots, duplicate code, and CI-ready quality signals.
 
@@ -41,7 +41,7 @@ Go already has excellent quality tools. Gallow is intended to sit beside them by
 Install the CLI:
 
 ```bash
-go install github.com/dominicnunez/go-fallow/cmd/gallow@latest
+go install github.com/dominicnunez/gallow/cmd/gallow@latest
 ```
 
 Run it from a Go module:
@@ -58,12 +58,6 @@ When working from a checkout of this repository, use:
 
 ```bash
 go run ./cmd/gallow --root . --summary
-```
-
-If the repository is renamed later, the future install path should be:
-
-```bash
-go install github.com/dominicnunez/gallow/cmd/gallow@latest
 ```
 
 ## Usage
